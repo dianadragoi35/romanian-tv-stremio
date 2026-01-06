@@ -4,7 +4,7 @@ const cors = require('cors');
 
 /* ---------------- CONSTANTS ---------------- */
 const PORT = process.env.PORT || 3000;
-const COUNTRY = 'RO'; // Hardcoded to Romania
+const COUNTRY = 'RO';
 const IPTV_CHANNELS_URL = 'https://iptv-org.github.io/api/channels.json';
 const IPTV_STREAMS_URL = 'https://iptv-org.github.io/api/streams.json';
 const IPTV_LOGOS_URL = 'https://iptv-org.github.io/api/logos.json';
@@ -213,19 +213,29 @@ app.get('/stream/:type/:id.json', async (req, res) => {
     const channelId = req.params.id.replace('rotv-', '');
     const { streams } = await getData();
 
-    const stream = streams.find(s => s.channel === channelId);
+    // Get ALL streams for this channel (HD, SD, different sources)
+    const channelStreams = streams.filter(s => s.channel === channelId);
 
-    if (!stream) {
+    if (channelStreams.length === 0) {
         return res.json({ streams: [] });
     }
 
     // Use proxied URL to handle CORS issues
     const baseUrl = `${req.protocol}://${req.headers.host}`;
-    const proxiedUrl = `${baseUrl}/hls-proxy/${encodeURIComponent(stream.url)}`;
 
-    res.json({
-        streams: [{ url: proxiedUrl, title: 'Live' }]
+    // Return all available streams with descriptive titles
+    const streamObjects = channelStreams.map(stream => {
+        const proxiedUrl = `${baseUrl}/hls-proxy/${encodeURIComponent(stream.url)}`;
+        const title = stream.title || `${stream.feed || 'Live'} ${stream.quality || ''}`.trim();
+
+        return {
+            url: proxiedUrl,
+            title: title,
+            name: title // Some Stremio clients use 'name' instead of 'title'
+        };
     });
+
+    res.json({ streams: streamObjects });
 });
 
 /* ---------------- HLS PROXY ENDPOINT ---------------- */
@@ -244,6 +254,28 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
             }
         });
 
+        // Get final URL after redirects
+        const finalUrl = response.request.res.responseUrl || streamUrl;
+
+        console.log('Original URL:', streamUrl);
+        console.log('Final URL after redirects:', finalUrl);
+
+        // Detect dead streams that redirect to error pages
+        const errorDomains = ['google.com', 'www.google.com', 'yahoo.com', 'bing.com'];
+        try {
+            const finalDomain = new URL(finalUrl).hostname;
+            if (errorDomains.some(domain => finalDomain.includes(domain))) {
+                console.error('Stream redirected to error page:', finalUrl);
+                return res.status(404).json({
+                    error: 'Stream not available',
+                    message: 'This stream appears to be dead or blocked'
+                });
+            }
+        } catch (urlError) {
+            console.error('Invalid final URL:', finalUrl);
+            return res.status(500).json({ error: 'Invalid redirect URL' });
+        }
+
         // Copy relevant headers
         const contentType = response.headers['content-type'] || 'application/vnd.apple.mpegurl';
         res.setHeader('Content-Type', contentType);
@@ -260,25 +292,43 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
             });
 
             response.data.on('end', () => {
-                // Use the FINAL URL after redirects for constructing segment URLs
-                const finalUrl = response.request.res.responseUrl || streamUrl;
+                // Validate playlist content
+                if (!playlistData.includes('#EXTM3U')) {
+                    console.error('Invalid M3U8 content received');
+                    return res.status(500).json({
+                        error: 'Invalid stream format',
+                        message: 'Response is not a valid M3U8 playlist'
+                    });
+                }
+
                 const baseUrl = `${req.protocol}://${req.headers.host}`;
                 const streamBaseUrl = finalUrl.substring(0, finalUrl.lastIndexOf('/') + 1);
 
-                console.log('Original URL:', streamUrl);
-                console.log('Final URL after redirects:', finalUrl);
+                try {
+                    const rewrittenPlaylist = playlistData.replace(
+                        /^(?!#|http)(.+)$/gm,
+                        (match) => {
+                            try {
+                                const trimmedMatch = match.trim();
+                                if (!trimmedMatch) return match;
 
-                const rewrittenPlaylist = playlistData.replace(
-                    /^(?!#|http)(.+)$/gm,
-                    (match) => {
-                        const absoluteUrl = match.startsWith('/')
-                            ? new URL(match, new URL(finalUrl).origin).href
-                            : streamBaseUrl + match;
-                        return `${baseUrl}/hls-proxy/${encodeURIComponent(absoluteUrl)}`;
-                    }
-                );
+                                const absoluteUrl = trimmedMatch.startsWith('/')
+                                    ? new URL(trimmedMatch, new URL(finalUrl).origin).href
+                                    : streamBaseUrl + trimmedMatch;
+                                return `${baseUrl}/hls-proxy/${encodeURIComponent(absoluteUrl)}`;
+                            } catch (err) {
+                                // If URL parsing fails, return original line
+                                console.warn('Failed to parse segment URL:', match);
+                                return match;
+                            }
+                        }
+                    );
 
-                res.send(rewrittenPlaylist);
+                    res.send(rewrittenPlaylist);
+                } catch (err) {
+                    console.error('Playlist rewrite error:', err.message);
+                    res.status(500).json({ error: 'Failed to process playlist' });
+                }
             });
         } else {
             // For video segments, just pipe the stream
