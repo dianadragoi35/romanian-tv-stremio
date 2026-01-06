@@ -10,6 +10,16 @@ const IPTV_STREAMS_URL = 'https://iptv-org.github.io/api/streams.json';
 const IPTV_LOGOS_URL = 'https://iptv-org.github.io/api/logos.json';
 const IPTV_GUIDES_URL = 'https://iptv-org.github.io/api/guides.json';
 
+// Priority channels to show first (case-insensitive matching)
+const PRIORITY_CHANNELS = [
+    'pro tv',
+    'protv news',
+    'antena 1',
+    'digi 24',
+    'kanal d',
+    'kiss tv'
+];
+
 /* ---------------- APP SETUP ---------------- */
 const app = express();
 app.use(cors());
@@ -152,10 +162,11 @@ app.get('/manifest.json', async (req, res) => {
             {
                 type: 'tv',
                 id: 'rotv-all',
-                name: 'All Romanian Channels',
+                name: 'Romanian TV',
                 extra: [
                     { name: 'search', isRequired: false },
-                    { name: 'genre', isRequired: false, options: allGenres }
+                    { name: 'genre', isRequired: false, options: allGenres },
+                    { name: 'skip', isRequired: false }
                 ]
             }
         ]
@@ -166,6 +177,7 @@ app.get('/manifest.json', async (req, res) => {
 app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
     const params = Object.fromEntries(new URLSearchParams(req.params.extra || ''));
     const { channels, streams } = await getData();
+    const skip = parseInt(params.skip) || 0;
 
     // Filter channels that have available streams
     let results = channels.filter(c => streams.some(s => s.channel === c.id));
@@ -179,6 +191,29 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
     if (params.search) {
         const q = params.search.toLowerCase();
         results = results.filter(c => c.name.toLowerCase().includes(q));
+    }
+
+    // Priority channel logic: show only priority channels on first load (skip=0, no filters)
+    if (skip === 0 && !params.search && !params.genre) {
+        // Show only priority channels
+        results = results.filter(c =>
+            PRIORITY_CHANNELS.some(priority =>
+                c.name.toLowerCase().includes(priority.toLowerCase())
+            )
+        );
+        // Sort priority channels in the order defined
+        results.sort((a, b) => {
+            const aIndex = PRIORITY_CHANNELS.findIndex(p => a.name.toLowerCase().includes(p.toLowerCase()));
+            const bIndex = PRIORITY_CHANNELS.findIndex(p => b.name.toLowerCase().includes(p.toLowerCase()));
+            return aIndex - bIndex;
+        });
+    } else if (skip > 0 && !params.search && !params.genre) {
+        // Show all OTHER channels (non-priority) when user clicks "See All"
+        results = results.filter(c =>
+            !PRIORITY_CHANNELS.some(priority =>
+                c.name.toLowerCase().includes(priority.toLowerCase())
+            )
+        );
     }
 
     // Transform channels to metas with EPG info
