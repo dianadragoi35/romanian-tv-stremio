@@ -27,7 +27,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 /* ---------------- CACHE ---------------- */
-let cache = { channels: null, streams: null, guides: null };
+let cache = { channels: null, streams: null };
 let lastFetch = 0;
 const TTL = 60 * 60 * 1000; // 1 hour
 
@@ -43,10 +43,9 @@ async function getData() {
 
     console.log('Fetching fresh data from iptv-org API...');
 
-    const [channelsRes, streamsRes, guidesRes] = await Promise.all([
+    const [channelsRes, streamsRes] = await Promise.all([
         axios.get(IPTV_CHANNELS_URL),
-        axios.get(IPTV_STREAMS_URL),
-        axios.get(IPTV_GUIDES_URL)
+        axios.get(IPTV_STREAMS_URL)
     ]);
 
     // Filter channels to only Romanian channels
@@ -54,8 +53,7 @@ async function getData() {
 
     cache = {
         channels: romanianChannels,
-        streams: streamsRes.data,
-        guides: guidesRes.data
+        streams: streamsRes.data
     };
     lastFetch = Date.now();
 
@@ -76,13 +74,8 @@ async function fetchLogos() {
 }
 
 /* ---------------- HELPER FUNCTIONS ---------------- */
-async function getPoster(channel, guideDetails = null) {
-    // Priority 1: Current show image from EPG
-    if (guideDetails?.currentShowImage) {
-        return guideDetails.currentShowImage;
-    }
-
-    // Priority 2: Horizontal logos from logos.json (widest, non-SVG)
+async function getPoster(channel) {
+    // Priority 1: Horizontal logos from logos.json (widest, non-SVG)
     const logos = await fetchLogos();
     const candidates = logos.filter(l =>
         l.channel === channel.id &&
@@ -95,12 +88,12 @@ async function getPoster(channel, guideDetails = null) {
         return candidates[0].url;
     }
 
-    // Priority 3: Channel's logo field (if not SVG)
+    // Priority 2: Channel's logo field (if not SVG)
     if (channel.logo && !channel.logo.endsWith('.svg')) {
         return channel.logo;
     }
 
-    // Priority 4: Default iptv-org logo pattern
+    // Priority 3: Default iptv-org logo pattern
     if (channel.id) {
         return `https://iptv-org.github.io/logo/${channel.id}.png`;
     }
@@ -109,18 +102,26 @@ async function getPoster(channel, guideDetails = null) {
     return 'https://dl.strem.io/addon-background-landscape.jpg';
 }
 
-function extractGuideDetails(guide) {
-    if (!guide) return null;
+async function toMeta(channel) {
+    const poster = await getPoster(channel);
 
-    return {
-        nowPlaying: guide.now || 'Unknown',
-        next: guide.next || 'Unknown',
-        currentShowImage: guide.image || null
-    };
-}
+    // Build description with available channel info
+    const descriptionParts = ['Romania'];
 
-async function toMeta(channel, guideDetails = null) {
-    const poster = await getPoster(channel, guideDetails);
+    // Add categories/genres
+    if (channel.categories && channel.categories.length > 0) {
+        descriptionParts.push(channel.categories.join(', '));
+    }
+
+    // Add network/broadcaster if available
+    if (channel.network) {
+        descriptionParts.push(`Network: ${channel.network}`);
+    }
+
+    // Add language info
+    if (channel.languages && channel.languages.length > 0) {
+        descriptionParts.push(`Languages: ${channel.languages.join(', ')}`);
+    }
 
     return {
         id: `rotv-${channel.id}`,
@@ -130,17 +131,8 @@ async function toMeta(channel, guideDetails = null) {
         posterShape: 'landscape',
         background: poster,
         logo: poster,
-        description: [
-            'Romania',
-            channel.categories?.join(', '),
-            guideDetails ? `Now: ${guideDetails.nowPlaying} • Next: ${guideDetails.next}` : null
-        ].filter(Boolean).join(' • ')
+        description: descriptionParts.join(' • ')
     };
-}
-
-async function getGuideInfo(channelID) {
-    const { guides } = await getData();
-    return guides.find(g => g.channel === channelID);
 }
 
 /* ---------------- MANIFEST ENDPOINT ---------------- */
@@ -216,12 +208,8 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
         );
     }
 
-    // Transform channels to metas with EPG info
-    const metas = await Promise.all(results.map(async (channel) => {
-        const guideInfo = await getGuideInfo(channel.id);
-        const details = extractGuideDetails(guideInfo);
-        return await toMeta(channel, details);
-    }));
+    // Transform channels to metas
+    const metas = await Promise.all(results.map(channel => toMeta(channel)));
 
     res.json({ metas });
 });
@@ -236,9 +224,7 @@ app.get('/meta/:type/:id.json', async (req, res) => {
         return res.json({ meta: {} });
     }
 
-    const guideInfo = await getGuideInfo(channelId);
-    const details = extractGuideDetails(guideInfo);
-    const meta = await toMeta(channel, details);
+    const meta = await toMeta(channel);
 
     res.json({ meta });
 });
@@ -378,7 +364,7 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
 
 /* ---------------- LANDING PAGE ---------------- */
 app.get('/', (req, res) => {
-    const manifestUrl = `${req.protocol}://${req.headers.host}/manifest.json`;
+    const manifestUrl = `https://${req.headers.host}/manifest.json`;
 
     res.send(`<!DOCTYPE html>
 <html>
@@ -489,10 +475,8 @@ button {
         <h3>Features:</h3>
         <ul>
             <li>Live Romanian TV channels</li>
-            <li>EPG/TV Guide support</li>
             <li>Search functionality</li>
             <li>Genre filtering</li>
-            <li>High-quality logos</li>
         </ul>
     </div>
 
@@ -534,7 +518,5 @@ function installApp() {
 
 /* ---------------- SERVER START ---------------- */
 app.listen(PORT, () => {
-    console.log(`🇷🇴 Romanian TV addon running on http://localhost:${PORT}/`);
-    console.log(`📋 Manifest: http://localhost:${PORT}/manifest.json`);
-    console.log(`🌍 Country: Romania (RO)`);
+    console.log(`🇷🇴 Romanian TV addon running`);
 });
