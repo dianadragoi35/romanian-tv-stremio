@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
+const sharp = require('sharp');
 
 /* ---------------- CONSTANTS ---------------- */
 const PORT = process.env.PORT || 3000;
@@ -13,7 +14,6 @@ const IPTV_GUIDES_URL = 'https://iptv-org.github.io/api/guides.json';
 // Priority channels to show first (case-insensitive matching)
 const PRIORITY_CHANNELS = [
     'pro tv',
-    'protv news',
     'antena 1',
     'digi 24',
     'kanal d',
@@ -35,13 +35,14 @@ let logosCache = null;
 let logosLastFetch = 0;
 const LOGOS_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
+let posterCache = new Map();
+const POSTER_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+
 /* ---------------- DATA FETCHING & CACHING ---------------- */
 async function getData() {
     if (cache.channels && Date.now() - lastFetch < TTL) {
         return cache;
     }
-
-    console.log('Fetching fresh data from iptv-org API...');
 
     const [channelsRes, streamsRes] = await Promise.all([
         axios.get(IPTV_CHANNELS_URL),
@@ -57,7 +58,6 @@ async function getData() {
     };
     lastFetch = Date.now();
 
-    console.log(`Loaded ${romanianChannels.length} Romanian channels`);
     return cache;
 }
 
@@ -66,7 +66,6 @@ async function fetchLogos() {
         return logosCache;
     }
 
-    console.log('Fetching logos data...');
     const res = await axios.get(IPTV_LOGOS_URL);
     logosCache = res.data;
     logosLastFetch = Date.now();
@@ -75,15 +74,15 @@ async function fetchLogos() {
 
 /* ---------------- HELPER FUNCTIONS ---------------- */
 async function getPoster(channel) {
-    // Priority 1: Horizontal logos from logos.json (widest, non-SVG)
+    // Priority 1: Any available logo from logos.json (widest, non-SVG)
     const logos = await fetchLogos();
     const candidates = logos.filter(l =>
         l.channel === channel.id &&
-        l.tags?.includes('horizontal') &&
         l.format?.toLowerCase() !== 'svg'
     );
 
     if (candidates.length) {
+        // Sort by width (widest first) to get the best quality logo
         candidates.sort((a, b) => b.width - a.width);
         return candidates[0].url;
     }
@@ -102,8 +101,8 @@ async function getPoster(channel) {
     return 'https://dl.strem.io/addon-background-landscape.jpg';
 }
 
-async function toMeta(channel) {
-    const poster = await getPoster(channel);
+async function toMeta(channel, baseUrl = '') {
+    const logoUrl = await getPoster(channel);
 
     // Build description with available channel info
     const descriptionParts = ['Romania'];
@@ -123,14 +122,18 @@ async function toMeta(channel) {
         descriptionParts.push(`Languages: ${channel.languages.join(', ')}`);
     }
 
+    // Use imgproxy-style URL to create landscape poster with logo centered on dark background
+    const landscapePoster = baseUrl
+        ? `${baseUrl}/poster-png/${encodeURIComponent(channel.id)}/${encodeURIComponent(logoUrl)}`
+        : logoUrl;
+
     return {
         id: `rotv-${channel.id}`,
         type: 'tv',
         name: channel.name,
-        poster,
+        poster: landscapePoster,
         posterShape: 'landscape',
-        background: poster,
-        logo: poster,
+        background: landscapePoster,
         description: descriptionParts.join(' • ')
     };
 }
@@ -146,7 +149,7 @@ app.get('/manifest.json', async (req, res) => {
         id: 'org.romanian-tv',
         name: 'Romanian TV',
         version: '1.0.0',
-        description: 'Live Romanian IPTV channels with EPG support',
+        description: 'Canale TV românești live',
         resources: ['catalog', 'meta', 'stream'],
         types: ['tv'],
         idPrefixes: ['rotv-'],
@@ -209,7 +212,8 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
     }
 
     // Transform channels to metas
-    const metas = await Promise.all(results.map(channel => toMeta(channel)));
+    const baseUrl = `${req.protocol}://${req.headers.host}`;
+    const metas = await Promise.all(results.map(channel => toMeta(channel, baseUrl)));
 
     res.json({ metas });
 });
@@ -224,7 +228,8 @@ app.get('/meta/:type/:id.json', async (req, res) => {
         return res.json({ meta: {} });
     }
 
-    const meta = await toMeta(channel);
+    const baseUrl = `${req.protocol}://${req.headers.host}`;
+    const meta = await toMeta(channel, baseUrl);
 
     res.json({ meta });
 });
@@ -263,7 +268,6 @@ app.get('/stream/:type/:id.json', async (req, res) => {
 app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
     try {
         const streamUrl = decodeURIComponent(req.params.streamUrl);
-        console.log('Proxying stream:', streamUrl);
 
         // Fetch the stream content with redirect following
         const response = await axios.get(streamUrl, {
@@ -277,9 +281,6 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
 
         // Get final URL after redirects
         const finalUrl = response.request.res.responseUrl || streamUrl;
-
-        console.log('Original URL:', streamUrl);
-        console.log('Final URL after redirects:', finalUrl);
 
         // Detect dead streams that redirect to error pages
         const errorDomains = ['google.com', 'www.google.com', 'yahoo.com', 'bing.com'];
@@ -359,6 +360,99 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
     } catch (error) {
         console.error('Proxy error:', error.message);
         res.status(500).json({ error: 'Failed to proxy stream', details: error.message });
+    }
+});
+
+/* ---------------- POSTER GENERATOR ENDPOINT (PNG) ---------------- */
+app.get('/poster-png/:channelId/:logoUrl(*)', async (req, res) => {
+    try {
+        const logoUrl = decodeURIComponent(req.params.logoUrl);
+        const channelId = decodeURIComponent(req.params.channelId);
+        const cacheKey = `${channelId}-${logoUrl}`;
+
+        // Check cache first
+        const cached = posterCache.get(cacheKey);
+        if (cached && Date.now() - cached.timestamp < POSTER_TTL) {
+            res.setHeader('Content-Type', 'image/png');
+            res.setHeader('Cache-Control', 'public, max-age=604800'); // Cache for 7 days
+            res.setHeader('X-Cache', 'HIT');
+            return res.send(cached.buffer);
+        }
+
+        // Download logo with retry and timeout
+        const logoResponse = await axios.get(logoUrl, {
+            responseType: 'arraybuffer',
+            timeout: 5000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+        const logoBuffer = Buffer.from(logoResponse.data);
+
+        // Get logo dimensions and resize to fit in 800x400 box
+        const logoImage = sharp(logoBuffer);
+        const logoMetadata = await logoImage.metadata();
+
+        // Calculate resize dimensions maintaining aspect ratio
+        const maxWidth = 800;
+        const maxHeight = 400;
+        let resizeWidth = logoMetadata.width;
+        let resizeHeight = logoMetadata.height;
+
+        if (resizeWidth > maxWidth || resizeHeight > maxHeight) {
+            const widthRatio = maxWidth / resizeWidth;
+            const heightRatio = maxHeight / resizeHeight;
+            const ratio = Math.min(widthRatio, heightRatio);
+            resizeWidth = Math.round(resizeWidth * ratio);
+            resizeHeight = Math.round(resizeHeight * ratio);
+        }
+
+        // Resize logo
+        const resizedLogo = await sharp(logoBuffer)
+            .resize(resizeWidth, resizeHeight, { fit: 'inside' })
+            .toBuffer();
+
+        // Create dark background (1280x720)
+        const background = await sharp({
+            create: {
+                width: 1280,
+                height: 720,
+                channels: 4,
+                background: { r: 26, g: 26, b: 46, alpha: 1 } // #1a1a2e
+            }
+        }).png().toBuffer();
+
+        // Calculate position to center logo
+        const left = Math.round((1280 - resizeWidth) / 2);
+        const top = Math.round((720 - resizeHeight) / 2);
+
+        // Composite logo on background
+        const finalImage = await sharp(background)
+            .composite([{
+                input: resizedLogo,
+                left,
+                top
+            }])
+            .png()
+            .toBuffer();
+
+        // Cache the result
+        posterCache.set(cacheKey, {
+            buffer: finalImage,
+            timestamp: Date.now()
+        });
+
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=604800'); // Cache for 7 days
+        res.setHeader('X-Cache', 'MISS');
+        res.send(finalImage);
+
+    } catch (error) {
+        console.error('Poster generation error:', error.message, 'for URL:', req.params.logoUrl);
+
+        // Redirect to original logo as fallback
+        const logoUrl = decodeURIComponent(req.params.logoUrl);
+        res.redirect(logoUrl);
     }
 });
 

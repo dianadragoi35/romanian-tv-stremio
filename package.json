@@ -8,9 +8,10 @@
     "dev": "nodemon addon.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
+    "axios": "^1.6.2",
     "cors": "^2.8.5",
-    "axios": "^1.6.2"
+    "express": "^4.18.2",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
@@ -19,7 +20,13 @@
     "node": "18.x",
     "npm": "8.x"
   },
-  "keywords": ["stremio", "addon", "iptv", "romania", "romanian-tv"],
+  "keywords": [
+    "stremio",
+    "addon",
+    "iptv",
+    "romania",
+    "romanian-tv"
+  ],
   "author": "",
   "license": "MIT"
 }
