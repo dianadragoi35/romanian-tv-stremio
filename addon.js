@@ -390,13 +390,13 @@ app.get('/poster-png/:channelId/:logoUrl(*)', async (req, res) => {
         });
         const logoBuffer = Buffer.from(logoResponse.data);
 
-        // Get logo dimensions and resize to fit in 400x600 box
+        // Get logo dimensions and resize to fit in 320x400 box (with padding for TV)
         const logoImage = sharp(logoBuffer);
         const logoMetadata = await logoImage.metadata();
 
         // Calculate resize dimensions maintaining aspect ratio
-        const maxWidth = 400;
-        const maxHeight = 600;
+        const maxWidth = 320;
+        const maxHeight = 400;
         let resizeWidth = logoMetadata.width;
         let resizeHeight = logoMetadata.height;
 
