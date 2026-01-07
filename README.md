@@ -182,6 +182,12 @@ Then filter in the catalog endpoint based on `req.params.id`.
 - Subsequent loads use cache (much faster)
 - Consider reducing TTL if data updates frequently
 
+## Support
+
+Îți place acest addon? Susține-mă!
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/dianadragoi#)
+
 ## Credits
 
 - **iptv-org**: https://github.com/iptv-org/iptv - For providing the IPTV channels database
