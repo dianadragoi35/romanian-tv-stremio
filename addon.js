@@ -31,6 +31,7 @@ app.use(express.static(__dirname)); // Serve static files (images)
 /* ---------------- CACHE ---------------- */
 let cache = { channels: null, streams: null };
 let lastFetch = 0;
+let lastETag = null;
 const TTL = 60 * 60 * 1000; // 1 hour
 
 let logosCache = null;
@@ -42,14 +43,35 @@ const POSTER_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /* ---------------- DATA FETCHING & CACHING ---------------- */
 async function getData() {
+    // Check if cache is still valid by time
     if (cache.channels && Date.now() - lastFetch < TTL) {
-        return cache;
+        // Even if time-valid, check if iptv-org has new data via ETag
+        try {
+            const headRes = await axios.head(IPTV_STREAMS_URL);
+            const currentETag = headRes.headers['etag'];
+
+            // If ETag changed, iptv-org has new data - bust cache immediately
+            if (currentETag && currentETag !== lastETag) {
+                console.log('🔄 New data detected from iptv-org (ETag changed), refreshing cache...');
+            } else {
+                // No new data, use cached version
+                return cache;
+            }
+        } catch (err) {
+            // If HEAD request fails, just use cache
+            return cache;
+        }
     }
+
+    console.log('Fetching fresh data from iptv-org API...');
 
     const [channelsRes, streamsRes] = await Promise.all([
         axios.get(IPTV_CHANNELS_URL),
         axios.get(IPTV_STREAMS_URL)
     ]);
+
+    // Store ETag for change detection
+    lastETag = streamsRes.headers['etag'];
 
     // Filter channels to only Romanian channels
     const romanianChannels = channelsRes.data.filter(c => c.country === COUNTRY);
@@ -60,6 +82,7 @@ async function getData() {
     };
     lastFetch = Date.now();
 
+    console.log(`Loaded ${romanianChannels.length} Romanian channels`);
     return cache;
 }
 
@@ -245,7 +268,7 @@ app.get('/stream/:type/:id.json', async (req, res) => {
     const { streams } = await getData();
 
     // Get ALL streams for this channel (HD, SD, different sources)
-    const channelStreams = streams.filter(s => s.channel === channelId);
+    let channelStreams = streams.filter(s => s.channel === channelId);
 
     if (channelStreams.length === 0) {
         return res.json({ streams: [] });
@@ -278,6 +301,7 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
         const response = await axios.get(streamUrl, {
             responseType: 'stream',
             maxRedirects: 5,
+            timeout: 10000, // 10 second timeout
             validateStatus: (status) => status < 400,
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -286,6 +310,8 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
 
         // Get final URL after redirects
         const finalUrl = response.request.res.responseUrl || streamUrl;
+
+        console.log('Stream proxy:', { originalUrl: streamUrl, finalUrl });
 
         // Detect dead streams that redirect to error pages
         const errorDomains = ['google.com', 'www.google.com', 'yahoo.com', 'bing.com'];
@@ -321,10 +347,22 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
             response.data.on('end', () => {
                 // Validate playlist content
                 if (!playlistData.includes('#EXTM3U')) {
-                    console.error('Invalid M3U8 content received');
-                    return res.status(500).json({
-                        error: 'Invalid stream format',
-                        message: 'Response is not a valid M3U8 playlist'
+                    // Check if it's an HTML error page
+                    const isHTML = playlistData.trim().toLowerCase().startsWith('<!doctype') ||
+                                   playlistData.trim().toLowerCase().startsWith('<html');
+
+                    // Log preview of what was received
+                    const preview = playlistData.substring(0, 200).replace(/\s+/g, ' ');
+                    console.error('Invalid M3U8 content received:', {
+                        url: streamUrl,
+                        contentType,
+                        isHTML,
+                        preview
+                    });
+
+                    return res.status(404).json({
+                        error: 'Stream unavailable',
+                        message: isHTML ? 'Stream returned an error page (expired or blocked)' : 'Invalid M3U8 format'
                     });
                 }
 
@@ -363,8 +401,31 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
         }
 
     } catch (error) {
-        console.error('Proxy error:', error.message);
-        res.status(500).json({ error: 'Failed to proxy stream', details: error.message });
+        // Provide specific error messages based on error type
+        let statusCode = 500;
+        let errorMessage = 'Failed to proxy stream';
+
+        if (error.code === 'ECONNREFUSED') {
+            statusCode = 503;
+            errorMessage = 'Stream server refused connection';
+        } else if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
+            statusCode = 504;
+            errorMessage = 'Stream server timeout';
+        } else if (error.response) {
+            statusCode = error.response.status;
+            errorMessage = `Stream server returned ${error.response.status}`;
+        }
+
+        console.error('Proxy error:', {
+            url: req.params.streamUrl ? decodeURIComponent(req.params.streamUrl) : 'unknown',
+            code: error.code,
+            message: error.message
+        });
+
+        res.status(statusCode).json({
+            error: errorMessage,
+            details: error.message
+        });
     }
 });
 
