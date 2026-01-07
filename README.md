@@ -7,8 +7,6 @@ A Stremio addon that provides live Romanian IPTV channels.
 - **Live Romanian TV Channels** - Access to all Romanian channels from iptv-org
 - **Genre Filtering** - Browse channels by category (News, Sports, Entertainment, etc.)
 
-## Screenshots
-
 ### Homepage View
 ![Homepage](board.png)
 
@@ -33,8 +31,6 @@ If you want to run the addon locally for development:
 
 - Node.js 18.x or higher
 - npm 8.x or higher
-
-## Installation
 
 ### 1. Clone or Download
 
@@ -61,9 +57,9 @@ For development with auto-reload:
 npm run dev
 ```
 
-### 4. Install in Stremio
+### 4. Install in Stremio (Local)
 
-Once the server is running:
+Once the server is running locally:
 
 1. Visit `http://localhost:3000/` in your browser
 2. Click "Install on Stremio Web" or "Install on Stremio App"

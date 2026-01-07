@@ -26,6 +26,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(express.static(__dirname)); // Serve static files (images)
 
 /* ---------------- CACHE ---------------- */
 let cache = { channels: null, streams: null };
@@ -467,10 +468,18 @@ app.get('/', (req, res) => {
 <title>Romanian TV Stremio Addon</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
+* {
+    box-sizing: border-box;
+}
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: #fff;
+    background: #0a0e27;
+    background-image:
+        radial-gradient(at 0% 0%, rgba(139, 92, 246, 0.15) 0px, transparent 50%),
+        radial-gradient(at 100% 0%, rgba(236, 72, 153, 0.12) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.15) 0px, transparent 50%),
+        radial-gradient(at 0% 100%, rgba(16, 185, 129, 0.12) 0px, transparent 50%);
+    color: #e0e7ff;
     margin: 0;
     padding: 20px;
     min-height: 100vh;
@@ -479,121 +488,273 @@ body {
     justify-content: center;
 }
 .container {
-    max-width: 600px;
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(10px);
-    padding: 40px;
-    border-radius: 20px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    max-width: 700px;
+    width: 100%;
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    backdrop-filter: blur(20px);
+    padding: 50px;
+    border-radius: 16px;
+    box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.5),
+        0 0 0 1px rgba(139, 92, 246, 0.1),
+        0 0 40px rgba(139, 92, 246, 0.1);
 }
 h1 {
-    margin: 0 0 10px 0;
-    font-size: 2.5em;
+    margin: 0 0 8px 0;
+    font-size: 2.75em;
+    font-weight: 700;
     text-align: center;
+    background: linear-gradient(135deg, #a78bfa 0%, #ec4899 50%, #3b82f6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.02em;
 }
 .subtitle {
     text-align: center;
-    opacity: 0.9;
-    margin-bottom: 30px;
+    color: #c4b5fd;
+    margin-bottom: 40px;
+    font-size: 1.1em;
+    font-weight: 400;
 }
 .features {
-    background: rgba(255, 255, 255, 0.1);
-    padding: 20px;
-    border-radius: 10px;
-    margin: 20px 0;
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(59, 130, 246, 0.1) 100%);
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    padding: 24px 28px;
+    border-radius: 12px;
+    margin: 30px 0;
+    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.1);
 }
 .features h3 {
-    margin-top: 0;
+    margin: 0 0 16px 0;
+    font-size: 1.1em;
+    font-weight: 600;
+    color: #cbd5e1;
 }
 .features ul {
     margin: 0;
-    padding-left: 20px;
+    padding-left: 24px;
+    list-style: none;
 }
 .features li {
-    margin: 8px 0;
+    margin: 10px 0;
+    padding-left: 8px;
+    position: relative;
+    color: #94a3b8;
+}
+.features li:before {
+    content: "✓";
+    position: absolute;
+    left: -16px;
+    color: #a78bfa;
+    font-weight: bold;
+    text-shadow: 0 0 8px rgba(167, 139, 250, 0.5);
+}
+.features li:nth-child(2):before {
+    color: #ec4899;
+    text-shadow: 0 0 8px rgba(236, 72, 153, 0.5);
+}
+.screenshots {
+    margin: 30px 0;
+}
+.screenshots h3 {
+    margin-bottom: 20px;
+}
+.screenshot-item {
+    margin-bottom: 24px;
+}
+.screenshot-item:last-child {
+    margin-bottom: 0;
+}
+.screenshot-item img {
+    width: 100%;
+    border-radius: 8px;
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    display: block;
+}
+.screenshot-label {
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.9em;
+    margin-top: 8px;
+    margin-bottom: 0;
+}
+h3 {
+    font-size: 1em;
+    font-weight: 600;
+    color: #cbd5e1;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 0.875em;
+}
+.manifest-container {
+    margin: 16px 0 30px 0;
+}
+.manifest-url-wrapper {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
 }
 .manifest-url {
-    background: rgba(0, 0, 0, 0.3);
-    padding: 15px;
+    flex: 1;
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid rgba(139, 92, 246, 0.3);
+    padding: 16px 18px;
     border-radius: 8px;
-    margin: 20px 0;
     word-break: break-all;
-    font-family: monospace;
+    font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+    color: #a78bfa;
+    line-height: 1.6;
+    box-shadow: 0 0 12px rgba(139, 92, 246, 0.1);
+}
+.btn-copy {
+    background: rgba(51, 65, 85, 0.6);
+    border: 1px solid rgba(71, 85, 105, 0.4);
+    color: #e0e7ff;
+    padding: 16px 20px;
     font-size: 14px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-family: inherit;
+    white-space: nowrap;
+    min-width: 80px;
+}
+.btn-copy:hover {
+    background: rgba(51, 65, 85, 0.8);
+    border-color: rgba(71, 85, 105, 0.6);
+}
+.btn-copy:active {
+    transform: scale(0.98);
+}
+.btn-copy.copied {
+    background: rgba(34, 197, 94, 0.2);
+    border-color: rgba(34, 197, 94, 0.4);
+    color: #86efac;
 }
 .buttons {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    margin-top: 20px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 24px;
 }
 button {
-    flex: 1;
-    min-width: 150px;
-    padding: 15px 25px;
-    font-size: 16px;
-    font-weight: bold;
+    padding: 16px 24px;
+    font-size: 15px;
+    font-weight: 600;
     border: none;
     border-radius: 8px;
     cursor: pointer;
-    transition: all 0.3s;
+    transition: all 0.2s ease;
+    font-family: inherit;
 }
 .btn-primary {
-    background: #fff;
-    color: #667eea;
+    background: linear-gradient(135deg, #a78bfa 0%, #ec4899 50%, #3b82f6 100%);
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(167, 139, 250, 0.4);
 }
 .btn-primary:hover {
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 6px 20px rgba(167, 139, 250, 0.6), 0 0 30px rgba(236, 72, 153, 0.3);
+}
+.btn-primary:active {
+    transform: translateY(0);
 }
 .btn-secondary {
-    background: rgba(255, 255, 255, 0.2);
-    color: #fff;
+    background: rgba(51, 65, 85, 0.6);
+    border: 1px solid rgba(71, 85, 105, 0.4);
+    color: #e0e7ff;
 }
 .btn-secondary:hover {
-    background: rgba(255, 255, 255, 0.3);
+    background: rgba(51, 65, 85, 0.8);
+    border-color: rgba(71, 85, 105, 0.6);
 }
 .footer {
     text-align: center;
-    margin-top: 30px;
-    opacity: 0.8;
+    margin-top: 40px;
+    color: #64748b;
     font-size: 14px;
+}
+.footer a {
+    color: #a78bfa;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+.footer a:hover {
+    color: #c4b5fd;
+}
+@media (max-width: 600px) {
+    .container {
+        padding: 30px 24px;
+    }
+    h1 {
+        font-size: 2em;
+    }
+    .buttons {
+        grid-template-columns: 1fr;
+    }
+    .manifest-url-wrapper {
+        flex-direction: column;
+    }
+    .btn-copy {
+        width: 100%;
+    }
 }
 </style>
 </head>
 <body>
 <div class="container">
-    <h1>📺 Romanian TV</h1>
+    <h1>Romanian TV</h1>
     <p class="subtitle">Stremio Addon for Romanian IPTV Channels</p>
 
-    <div class="features">
-        <h3>Features:</h3>
-        <ul>
-            <li>Live Romanian TV channels</li>
-            <li>Search functionality</li>
-            <li>Genre filtering</li>
-        </ul>
+    <h3>Manifest URL</h3>
+    <div class="manifest-container">
+        <div class="manifest-url-wrapper">
+            <div class="manifest-url" id="manifest">${manifestUrl}</div>
+            <button class="btn-copy" id="copyBtn" onclick="copyManifest()">Copy</button>
+        </div>
     </div>
-
-    <h3>Installation:</h3>
-    <div class="manifest-url" id="manifest">${manifestUrl}</div>
 
     <div class="buttons">
         <button class="btn-primary" onclick="installWeb()">Install on Stremio Web</button>
         <button class="btn-primary" onclick="installApp()">Install on Stremio App</button>
-        <button class="btn-secondary" onclick="copyManifest()">Copy Manifest URL</button>
+    </div>
+
+    <div class="screenshots">
+        <h3>Preview</h3>
+        <div class="screenshot-item">
+            <img src="/board.png" alt="Romanian TV Homepage" />
+            <p class="screenshot-label">Channel Catalog</p>
+        </div>
     </div>
 
     <div class="footer">
-        Powered by <a href="https://github.com/iptv-org/iptv" style="color: white;">iptv-org</a>
+        <a href="https://github.com/dianadragoi35/romanian-tv-stremio" target="_blank" rel="noopener" class="github-link">
+            <svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor" style="vertical-align: text-bottom; margin-right: 4px;">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+            </svg>
+            View source code
+        </a> •
+        Powered by <a href="https://github.com/iptv-org/iptv" target="_blank" rel="noopener">iptv-org</a>
     </div>
 </div>
 
 <script>
 function copyManifest() {
     const url = document.getElementById('manifest').textContent;
+    const btn = document.getElementById('copyBtn');
     navigator.clipboard.writeText(url).then(() => {
-        alert('Manifest URL copied to clipboard!');
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => {
+            btn.textContent = 'Copy';
+            btn.classList.remove('copied');
+        }, 2000);
     });
 }
 
