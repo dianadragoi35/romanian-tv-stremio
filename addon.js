@@ -192,7 +192,11 @@ app.get('/manifest.json', async (req, res) => {
                     { name: 'skip', isRequired: false }
                 ]
             }
-        ]
+        ],
+        stremioAddonsConfig: {
+            issuer: "https://stremio-addons.net",
+            signature: "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4Q0JDLUhTMjU2In0..Bv_G0RGi_DFiUZ-2wRvKNQ.Tt-cEjr_Xii3jek_G2Xv3rsiARKPNr62IvzEO29vsHHqdo3JtQ2JrGWAacJeXwELQRk1P6tzcTR--aDsOa-dCCHyC99nm0zuU5C3CfxBsQr3_woOsXu6N9aCTMo3jKbC.cd18-EjFIdJzqmKUImQwyQ"
+        }
     });
 });
 
