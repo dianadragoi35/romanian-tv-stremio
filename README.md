@@ -1,29 +1,29 @@
 # Romanian TV - Stremio Addon
 
-A Stremio addon that provides live Romanian IPTV channels.
+Un addon Stremio care oferă canale IPTV românești live.
 
-## Features
+## Funcționalități
 
-- **Live Romanian TV Channels** - Access to all Romanian channels from iptv-org
-- **Genre Filtering** - Browse channels by category (News, Sports, Entertainment, etc.)
+- **Canale TV Românești Live** - Acces la toate canalele românești din iptv-org
+- **Filtrare pe Genuri** - Răsfoiește canalele pe categorii (Știri, Sport, Divertisment, etc.)
 
-### Homepage View
+### Vizualizare Pagină Principală
 ![Homepage](board.png)
 
-### Discover with Filters
+### Descoperă cu Filtre
 ![Discover](discover.png)
 
-## Installation on Stremio
+## Instalare pe Stremio
 
-To install the addon on your Stremio app or web player:
+Pentru a instala addon-ul pe aplicația Stremio sau pe web player:
 
-1. **Visit the addon page**: https://romanian-tv-stremio.up.railway.app/
-2. Click **"Install on Stremio Web"** or **"Install on Stremio App"**
-3. Confirm the installation in Stremio
+1. **Vizitează pagina addon-ului**: https://romanian-tv-stremio.up.railway.app/
+2. Click pe **"Instalează pe Stremio Web"** sau **"Instalează pe Aplicația Stremio"**
+3. Confirmă instalarea în Stremio
 
-That's it! You can now browse Romanian TV channels in your Stremio catalog.
+Asta e tot! Acum poți răsfoi canalele TV românești în catalogul tău Stremio.
 
-## Development Setup
+## Development Setup (dev only)
 
 If you want to run the addon locally for development:
 
@@ -184,7 +184,7 @@ Then filter in the catalog endpoint based on `req.params.id`.
 
 ## Support
 
-Îți place acest addon? Susține-mă!
+Do you like this addon? Support me!
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/dianadragoi#)
 
