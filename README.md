@@ -23,6 +23,12 @@ Pentru a instala addon-ul pe aplicația Stremio sau pe web player:
 
 Asta e tot! Acum poți răsfoi canalele TV românești în catalogul tău Stremio.
 
+## Suport
+
+Îți place acest addon? ♥️ Susține-mă!
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/dianadragoi#)
+
 ## Development Setup (dev only)
 
 If you want to run the addon locally for development:
@@ -181,12 +187,6 @@ Then filter in the catalog endpoint based on `req.params.id`.
 - First load fetches all data (can take a few seconds)
 - Subsequent loads use cache (much faster)
 - Consider reducing TTL if data updates frequently
-
-## Support
-
-Do you like this addon? Support me!
-
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/dianadragoi#)
 
 ## Credits
 
