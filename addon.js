@@ -16,6 +16,7 @@ const PRIORITY_CHANNELS = [
     'pro tv',
     'antena 1',
     'digi 24',
+    'euronews romania',
     'kanal d',
     'kiss tv'
 ];
@@ -132,7 +133,7 @@ async function toMeta(channel, baseUrl = '') {
         type: 'tv',
         name: channel.name,
         poster: landscapePoster,
-        posterShape: 'landscape',
+        posterShape: 'poster',
         background: landscapePoster,
         description: descriptionParts.join(' • ')
     };
@@ -389,13 +390,13 @@ app.get('/poster-png/:channelId/:logoUrl(*)', async (req, res) => {
         });
         const logoBuffer = Buffer.from(logoResponse.data);
 
-        // Get logo dimensions and resize to fit in 800x400 box
+        // Get logo dimensions and resize to fit in 400x600 box
         const logoImage = sharp(logoBuffer);
         const logoMetadata = await logoImage.metadata();
 
         // Calculate resize dimensions maintaining aspect ratio
-        const maxWidth = 800;
-        const maxHeight = 400;
+        const maxWidth = 400;
+        const maxHeight = 600;
         let resizeWidth = logoMetadata.width;
         let resizeHeight = logoMetadata.height;
 
@@ -412,10 +413,10 @@ app.get('/poster-png/:channelId/:logoUrl(*)', async (req, res) => {
             .resize(resizeWidth, resizeHeight, { fit: 'inside' })
             .toBuffer();
 
-        // Create dark background (1280x720)
+        // Create dark background (480x720 - portrait 2:3 ratio)
         const background = await sharp({
             create: {
-                width: 1280,
+                width: 480,
                 height: 720,
                 channels: 4,
                 background: { r: 26, g: 26, b: 46, alpha: 1 } // #1a1a2e
@@ -423,7 +424,7 @@ app.get('/poster-png/:channelId/:logoUrl(*)', async (req, res) => {
         }).png().toBuffer();
 
         // Calculate position to center logo
-        const left = Math.round((1280 - resizeWidth) / 2);
+        const left = Math.round((480 - resizeWidth) / 2);
         const top = Math.round((720 - resizeHeight) / 2);
 
         // Composite logo on background
