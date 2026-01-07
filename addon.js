@@ -147,11 +147,14 @@ app.get('/manifest.json', async (req, res) => {
     // Get all unique genres from Romanian channels
     const allGenres = [...new Set(channels.flatMap(c => c.categories || []))].sort();
 
+    const baseUrl = `${req.protocol}://${req.headers.host}`;
+
     res.json({
         id: 'org.romanian-tv',
         name: 'Romanian TV',
         version: '1.0.0',
         description: 'Canale TV românești live',
+        logo: `${baseUrl}/logo.png`,
         resources: ['catalog', 'meta', 'stream'],
         types: ['tv'],
         idPrefixes: ['rotv-'],
@@ -502,10 +505,9 @@ body {
         0 0 40px rgba(139, 92, 246, 0.1);
 }
 h1 {
-    margin: 0 0 8px 0;
+    margin: 0;
     font-size: 2.75em;
     font-weight: 700;
-    text-align: center;
     background: linear-gradient(135deg, #a78bfa 0%, #ec4899 50%, #3b82f6 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -724,6 +726,18 @@ button {
 .footer a:hover {
     color: #c4b5fd;
 }
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    margin-bottom: 8px;
+}
+.logo {
+    width: 80px;
+    height: 80px;
+    flex-shrink: 0;
+}
 @media (max-width: 600px) {
     .container {
         padding: 30px 24px;
@@ -740,12 +754,22 @@ button {
     .btn-copy {
         width: 100%;
     }
+    .header {
+        gap: 16px;
+    }
+    .logo {
+        width: 64px;
+        height: 64px;
+    }
 }
 </style>
 </head>
 <body>
 <div class="container">
-    <h1>Romanian TV</h1>
+    <div class="header">
+        <img src="/logo.png" alt="Romanian TV Logo" class="logo" />
+        <h1>Romanian TV</h1>
+    </div>
     <p class="subtitle">Addon Stremio pentru Canale TV Românești</p>
 
     <h3>URL</h3>
