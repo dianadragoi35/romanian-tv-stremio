@@ -193,6 +193,10 @@ Then filter in the catalog endpoint based on `req.params.id`.
 - **iptv-org**: https://github.com/iptv-org/iptv - For providing the IPTV channels database
 - **Stremio**: https://www.stremio.com/ - For the amazing media center platform ♥️
 
+## Legal Disclaimer
+
+This addon only aggregates publicly available IPTV streams provided by iptv-org. We do not host, store, or provide any copyrighted content ourselves. All streams are maintained by third parties.
+
 ## License
 
 MIT
