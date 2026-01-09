@@ -13,12 +13,12 @@ const IPTV_GUIDES_URL = 'https://iptv-org.github.io/api/guides.json';
 
 // Priority channels to show first (case-insensitive matching)
 const PRIORITY_CHANNELS = [
-    'pro tv',
-    'antena 1',
     'digi 24',
     'euronews romania',
+    'observator news',
     'kanal d',
-    'kiss tv'
+    'kiss tv',
+    'protv news',
 ];
 
 /* ---------------- APP SETUP ---------------- */
@@ -82,7 +82,6 @@ async function getData() {
     };
     lastFetch = Date.now();
 
-    console.log(`Loaded ${romanianChannels.length} Romanian channels`);
     return cache;
 }
 
@@ -175,7 +174,7 @@ app.get('/manifest.json', async (req, res) => {
     res.json({
         id: 'org.romanian-tv',
         name: 'Romanian TV',
-        version: '1.0.0',
+        version: '1.0.1',
         description: 'Canale TV românești live',
         logo: `${baseUrl}/logo.png`,
         resources: ['catalog', 'meta', 'stream'],
@@ -208,6 +207,15 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
 
     // Filter channels that have available streams
     let results = channels.filter(c => streams.some(s => s.channel === c.id));
+
+    //TODO: get only streams that have available endpoints
+    //for now, we exclude blocked channels
+    const EXCLUDED_CHANNELS = ['pro tv', 'antena 1'];
+    results = results.filter(c =>
+        !EXCLUDED_CHANNELS.some(excluded =>
+            c.name.toLowerCase() === excluded.toLowerCase()
+        )
+    );
 
     // Apply genre filter if provided
     if (params.genre) {
@@ -315,8 +323,6 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
         // Get final URL after redirects
         const finalUrl = response.request.res.responseUrl || streamUrl;
 
-        console.log('Stream proxy:', { originalUrl: streamUrl, finalUrl });
-
         // Detect dead streams that redirect to error pages
         const errorDomains = ['google.com', 'www.google.com', 'yahoo.com', 'bing.com'];
         try {
@@ -354,15 +360,6 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
                     // Check if it's an HTML error page
                     const isHTML = playlistData.trim().toLowerCase().startsWith('<!doctype') ||
                                    playlistData.trim().toLowerCase().startsWith('<html');
-
-                    // Log preview of what was received
-                    const preview = playlistData.substring(0, 200).replace(/\s+/g, ' ');
-                    console.error('Invalid M3U8 content received:', {
-                        url: streamUrl,
-                        contentType,
-                        isHTML,
-                        preview
-                    });
 
                     return res.status(404).json({
                         error: 'Stream unavailable',
@@ -518,8 +515,6 @@ app.get('/poster-png/:channelId/:logoUrl(*)', async (req, res) => {
         res.send(finalImage);
 
     } catch (error) {
-        console.error('Poster generation error:', error.message, 'for URL:', req.params.logoUrl);
-
         // Redirect to original logo as fallback
         const logoUrl = decodeURIComponent(req.params.logoUrl);
         res.redirect(logoUrl);
