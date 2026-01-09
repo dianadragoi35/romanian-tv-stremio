@@ -13,11 +13,11 @@ const IPTV_GUIDES_URL = 'https://iptv-org.github.io/api/guides.json';
 
 // Priority channels to show first (case-insensitive matching)
 const PRIORITY_CHANNELS = [
+    'antena 1',   
     'digi 24',
     'euronews romania',
     'observator news',
     'kanal d',
-    'kiss tv',
     'protv news',
 ];
 
@@ -210,7 +210,7 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
 
     //TODO: get only streams that have available endpoints
     //for now, we exclude blocked channels
-    const EXCLUDED_CHANNELS = ['pro tv', 'antena 1'];
+    const EXCLUDED_CHANNELS = ['pro tv'];
     results = results.filter(c =>
         !EXCLUDED_CHANNELS.some(excluded =>
             c.name.toLowerCase() === excluded.toLowerCase()
@@ -346,7 +346,7 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
         res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
 
-        // If it's an M3U8 playlist, rewrite URLs to go through proxy
+        // If it's an M3U8 playlist, rewrite URLs
         if (contentType.includes('mpegurl') || contentType.includes('m3u8') || streamUrl.includes('.m3u8')) {
             let playlistData = '';
 
@@ -371,6 +371,9 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
                 const streamBaseUrl = finalUrl.substring(0, finalUrl.lastIndexOf('/') + 1);
 
                 try {
+                    // Detect if this is a master playlist (contains #EXT-X-STREAM-INF) or media playlist
+                    const isMasterPlaylist = playlistData.includes('#EXT-X-STREAM-INF');
+
                     const rewrittenPlaylist = playlistData.replace(
                         /^(?!#|http)(.+)$/gm,
                         (match) => {
@@ -381,7 +384,18 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
                                 const absoluteUrl = trimmedMatch.startsWith('/')
                                     ? new URL(trimmedMatch, new URL(finalUrl).origin).href
                                     : streamBaseUrl + trimmedMatch;
-                                return `${baseUrl}/hls-proxy/${encodeURIComponent(absoluteUrl)}`;
+
+                                // Only proxy if it's another M3U8 playlist (master -> media playlist)
+                                // For video segments (.ts, .m4s, etc), use direct URLs to save bandwidth
+                                const isPlaylist = trimmedMatch.includes('.m3u8') || trimmedMatch.includes('.m3u');
+
+                                if (isPlaylist) {
+                                    // Proxy nested playlists
+                                    return `${baseUrl}/hls-proxy/${encodeURIComponent(absoluteUrl)}`;
+                                } else {
+                                    // Return direct URL for video segments (saves bandwidth!)
+                                    return absoluteUrl;
+                                }
                             } catch (err) {
                                 // If URL parsing fails, return original line
                                 console.warn('Failed to parse segment URL:', match);
@@ -397,8 +411,8 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
                 }
             });
         } else {
-            // For video segments, just pipe the stream
-            response.data.pipe(res);
+            // For video segments, redirect to origin instead of proxying to save bandwidth
+            res.redirect(307, finalUrl);
         }
 
     } catch (error) {
