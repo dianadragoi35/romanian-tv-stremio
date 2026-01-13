@@ -1,32 +1,64 @@
+require('dotenv').config();
+
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const sharp = require('sharp');
+const fs = require('fs');
+const path = require('path');
 
 /* ---------------- CONSTANTS ---------------- */
 const PORT = process.env.PORT || 3000;
+const ENABLE_CUSTOM_CHANNELS = process.env.ENABLE_CUSTOM_CHANNELS !== 'false';
 const COUNTRY = 'RO';
 const IPTV_CHANNELS_URL = 'https://iptv-org.github.io/api/channels.json';
 const IPTV_STREAMS_URL = 'https://iptv-org.github.io/api/streams.json';
 const IPTV_LOGOS_URL = 'https://iptv-org.github.io/api/logos.json';
-const IPTV_GUIDES_URL = 'https://iptv-org.github.io/api/guides.json';
 
 // Priority channels to show first (case-insensitive matching)
 const PRIORITY_CHANNELS = [
     'pro tv',
     'antena 1',
+    'discovery',
+    'national geographic',
+    'eurosport 1',
     'digi 24',
     'euronews romania',
-    'kanal d',
     'kiss tv'
 ];
+
+/* ---------------- CUSTOM CHANNELS ---------------- */
+let customChannels = {};
+let customChannelsConfig = { excludeIptvChannelIds: [] };
+
+if (ENABLE_CUSTOM_CHANNELS) {
+    try {
+        const customChannelsPath = path.join(__dirname, 'custom-channels.json');
+        if (fs.existsSync(customChannelsPath)) {
+            const data = fs.readFileSync(customChannelsPath, 'utf8');
+            const parsed = JSON.parse(data);
+
+            if (parsed._config) {
+                customChannelsConfig = parsed._config;
+                delete parsed._config;
+            }
+
+            customChannels = parsed;
+            console.log('✓ Custom channels loaded:', Object.keys(customChannels).length);
+        }
+    } catch (error) {
+        console.warn('⚠️  Failed to load custom channels:', error.message);
+    }
+} else {
+    console.log('✓ Custom channels disabled via ENABLE_CUSTOM_CHANNELS');
+}
 
 /* ---------------- APP SETUP ---------------- */
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(express.static(__dirname)); // Serve static files (images)
+app.use(express.static(__dirname));
 
 /* ---------------- CACHE ---------------- */
 let cache = { channels: null, streams: null };
@@ -41,7 +73,90 @@ const LOGOS_TTL = 24 * 60 * 60 * 1000; // 24 hours
 let posterCache = new Map();
 const POSTER_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+/* ---------------- TOKEN MANAGEMENT ---------------- */
+// Token cache: Map<sourceUrl, {token, remote, expires}>
+let tokenCache = new Map();
+const TOKEN_REFRESH_LEAD_TIME = 30000; // Refresh 30s before expiry
+
+async function fetchToken(sourceUrl) {
+    try {
+        const response = await axios.get('https://ivanturbinca.com/securetoken.php', {
+            params: { source: sourceUrl },
+            timeout: 5000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                'Referer': 'https://ivanturbinca.com/'
+            }
+        });
+
+        const data = response.data;
+        if (!data.token) {
+            throw new Error('No token in response');
+        }
+
+        const tokenData = {
+            token: data.token,
+            remote: data.remote || 'no_check_ip',
+            expires: data.expires * 1000
+        };
+
+        tokenCache.set(sourceUrl, tokenData);
+
+        return tokenData;
+    } catch (error) {
+        console.error('❌ Token fetch failed:', error.message);
+        throw error;
+    }
+}
+
+async function getValidToken(sourceUrl) {
+    const cached = tokenCache.get(sourceUrl);
+    const now = Date.now();
+
+    // Check if we have a valid cached token
+    if (cached && cached.expires > now + TOKEN_REFRESH_LEAD_TIME) {
+        return cached;
+    }
+
+    return await fetchToken(sourceUrl);
+}
+
+function appendTokenToUrl(url, tokenData) {
+    try {
+        const urlObj = new URL(url);
+        urlObj.searchParams.set('token', tokenData.token);
+        urlObj.searchParams.set('remote', tokenData.remote);
+        return urlObj.toString();
+    } catch (err) {
+        const sep = url.includes('?') ? '&' : '?';
+        return `${url}${sep}token=${encodeURIComponent(tokenData.token)}&remote=${encodeURIComponent(tokenData.remote)}`;
+    }
+}
+
 /* ---------------- DATA FETCHING & CACHING ---------------- */
+// Helper function to normalize channel names for comparison
+function normalizeChannelName(name) {
+    return name
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '') // Remove all non-alphanumeric characters
+        .replace(/\s+/g, ''); // Remove whitespace
+}
+
+// Helper function to check if two channel names match
+function channelNamesMatch(name1, name2) {
+    const normalized1 = normalizeChannelName(name1);
+    const normalized2 = normalizeChannelName(name2);
+
+    if (normalized1 === normalized2) return true;
+
+    // Check if one name contains the other (handles "Pro TV" vs "Pro TV HD")
+    if (normalized1.includes(normalized2) || normalized2.includes(normalized1)) {
+        return true;
+    }
+
+    return false;
+}
+
 async function getData() {
     // Check if cache is still valid by time
     if (cache.channels && Date.now() - lastFetch < TTL) {
@@ -52,18 +167,14 @@ async function getData() {
 
             // If ETag changed, iptv-org has new data - bust cache immediately
             if (currentETag && currentETag !== lastETag) {
-                console.log('🔄 New data detected from iptv-org (ETag changed), refreshing cache...');
+                // Refresh cache
             } else {
-                // No new data, use cached version
                 return cache;
             }
         } catch (err) {
-            // If HEAD request fails, just use cache
             return cache;
         }
     }
-
-    console.log('Fetching fresh data from iptv-org API...');
 
     const [channelsRes, streamsRes] = await Promise.all([
         axios.get(IPTV_CHANNELS_URL),
@@ -74,15 +185,50 @@ async function getData() {
     lastETag = streamsRes.headers['etag'];
 
     // Filter channels to only Romanian channels
-    const romanianChannels = channelsRes.data.filter(c => c.country === COUNTRY);
+    let romanianChannels = channelsRes.data.filter(c => c.country === COUNTRY);
+
+    let allChannels;
+
+    if (ENABLE_CUSTOM_CHANNELS) {
+        const customChannelsArray = Object.values(customChannels);
+
+        // DEDUPLICATION & MERGING LOGIC
+        customChannelsArray.forEach(customChannel => {
+            const matchingIptvChannels = romanianChannels.filter(iptvChannel =>
+                channelNamesMatch(customChannel.name, iptvChannel.name)
+            );
+
+            if (matchingIptvChannels.length > 0) {
+                customChannel.iptvOrgChannelIds = matchingIptvChannels.map(ch => ch.id);
+            }
+        });
+
+        romanianChannels = romanianChannels.filter(iptvChannel => {
+            if (customChannelsConfig.excludeIptvChannelIds?.includes(iptvChannel.id)) {
+                return false;
+            }
+            const matchesCustomChannel = customChannelsArray.some(customChannel =>
+                channelNamesMatch(customChannel.name, iptvChannel.name)
+            );
+            if (matchesCustomChannel) {
+                return false;
+            }
+
+            return true;
+        });
+
+        allChannels = [...customChannelsArray, ...romanianChannels];
+    } else {
+        // When custom channels are disabled, use only iptv-org channels
+        allChannels = romanianChannels;
+    }
 
     cache = {
-        channels: romanianChannels,
+        channels: allChannels,
         streams: streamsRes.data
     };
     lastFetch = Date.now();
 
-    console.log(`Loaded ${romanianChannels.length} Romanian channels`);
     return cache;
 }
 
@@ -98,8 +244,26 @@ async function fetchLogos() {
 }
 
 /* ---------------- HELPER FUNCTIONS ---------------- */
+// Check if a stream URL requires proxying through our server
+function streamNeedsProxy(url) {
+    try {
+        const urlObj = new URL(url);
+        const hostname = urlObj.hostname.toLowerCase();
+
+        // Streams that need special headers or token management
+        if (hostname.includes('ivanturbinca.com')) return true;
+        if (hostname.includes('magicplaces.eu')) return true;
+        if (url.includes('hls-proxy.php')) return true;
+
+        // Most iptv-org streams work without proxy (no CORS issues, no special headers needed)
+        return false;
+    } catch (err) {
+        // If URL parsing fails, proxy it to be safe
+        return true;
+    }
+}
+
 async function getPoster(channel) {
-    // Priority 1: Any available logo from logos.json (widest, non-SVG)
     const logos = await fetchLogos();
     const candidates = logos.filter(l =>
         l.channel === channel.id &&
@@ -107,17 +271,12 @@ async function getPoster(channel) {
     );
 
     if (candidates.length) {
-        // Sort by width (widest first) to get the best quality logo
         candidates.sort((a, b) => b.width - a.width);
         return candidates[0].url;
     }
-
-    // Priority 2: Channel's logo field (if not SVG)
     if (channel.logo && !channel.logo.endsWith('.svg')) {
         return channel.logo;
     }
-
-    // Priority 3: Default iptv-org logo pattern
     if (channel.id) {
         return `https://iptv-org.github.io/logo/${channel.id}.png`;
     }
@@ -129,25 +288,17 @@ async function getPoster(channel) {
 async function toMeta(channel, baseUrl = '') {
     const logoUrl = await getPoster(channel);
 
-    // Build description with available channel info
     const descriptionParts = ['Romania'];
 
-    // Add categories/genres
     if (channel.categories && channel.categories.length > 0) {
         descriptionParts.push(channel.categories.join(', '));
     }
-
-    // Add network/broadcaster if available
     if (channel.network) {
         descriptionParts.push(`Network: ${channel.network}`);
     }
-
-    // Add language info
     if (channel.languages && channel.languages.length > 0) {
         descriptionParts.push(`Languages: ${channel.languages.join(', ')}`);
     }
-
-    // Use imgproxy-style URL to create landscape poster with logo centered on dark background
     const landscapePoster = baseUrl
         ? `${baseUrl}/poster-png/${encodeURIComponent(channel.id)}/${encodeURIComponent(logoUrl)}`
         : logoUrl;
@@ -166,16 +317,13 @@ async function toMeta(channel, baseUrl = '') {
 /* ---------------- MANIFEST ENDPOINT ---------------- */
 app.get('/manifest.json', async (req, res) => {
     const { channels } = await getData();
-
-    // Get all unique genres from Romanian channels
     const allGenres = [...new Set(channels.flatMap(c => c.categories || []))].sort();
-
     const baseUrl = `${req.protocol}://${req.headers.host}`;
 
     res.json({
         id: 'org.romanian-tv',
         name: 'Romanian TV',
-        version: '1.0.0',
+        version: '2.0.0',
         description: 'Canale TV românești live',
         logo: `${baseUrl}/logo.png`,
         resources: ['catalog', 'meta', 'stream'],
@@ -185,7 +333,7 @@ app.get('/manifest.json', async (req, res) => {
             {
                 type: 'tv',
                 id: 'rotv-all',
-                name: 'Romanian TV',
+                name: 'RO TV',
                 extra: [
                     { name: 'search', isRequired: false },
                     { name: 'genre', isRequired: false, options: allGenres },
@@ -206,8 +354,10 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
     const { channels, streams } = await getData();
     const skip = parseInt(params.skip) || 0;
 
-    // Filter channels that have available streams
-    let results = channels.filter(c => streams.some(s => s.channel === c.id));
+    // Filter channels that have available streams (either from iptv-org or custom sources)
+    let results = channels.filter(c =>
+        c.sources?.length > 0 || streams.some(s => s.channel === c.id)
+    );
 
     // Apply genre filter if provided
     if (params.genre) {
@@ -269,31 +419,253 @@ app.get('/meta/:type/:id.json', async (req, res) => {
 /* ---------------- STREAM ENDPOINT ---------------- */
 app.get('/stream/:type/:id.json', async (req, res) => {
     const channelId = req.params.id.replace('rotv-', '');
-    const { streams } = await getData();
 
-    // Get ALL streams for this channel (HD, SD, different sources)
-    let channelStreams = streams.filter(s => s.channel === channelId);
+    const { channels, streams } = await getData();
 
-    if (channelStreams.length === 0) {
+    // Find the channel (could be custom or iptv-org)
+    const channel = channels.find(c => c.id === channelId);
+
+    if (!channel) {
         return res.json({ streams: [] });
     }
 
-    // Use proxied URL to handle CORS issues
     const baseUrl = `${req.protocol}://${req.headers.host}`;
+    const allStreams = [];
 
-    // Return all available streams with descriptive titles
-    const streamObjects = channelStreams.map(stream => {
-        const proxiedUrl = `${baseUrl}/hls-proxy/${encodeURIComponent(stream.url)}`;
-        const title = stream.title || `${stream.feed || 'Live'} ${stream.quality || ''}`.trim();
+    // Check if this channel has custom sources
+    if (channel.sources?.length > 0) {
+        const customStreamObjects = channel.sources.map((source) => {
+            let finalUrl;
 
-        return {
-            url: proxiedUrl,
-            title: title,
-            name: title // Some Stremio clients use 'name' instead of 'title'
-        };
-    });
+            if (source.url.includes('ivanturbinca.com/hls-proxy.php')) {
+                // Extract the actual source URL from the proxy parameter
+                try {
+                    const urlObj = new URL(source.url);
+                    const srcParam = urlObj.searchParams.get('src');
 
-    res.json({ streams: streamObjects });
+                    if (srcParam && srcParam.includes('magicplaces.eu')) {
+                        // Use token-based playlist proxy
+                        finalUrl = `${baseUrl}/token-playlist/${encodeURIComponent(srcParam)}`;
+                    } else {
+                        // Fallback to external-proxy
+                        finalUrl = `${baseUrl}/external-proxy/${encodeURIComponent(source.url)}`;
+                    }
+                } catch (err) {
+                    finalUrl = `${baseUrl}/external-proxy/${encodeURIComponent(source.url)}`;
+                }
+            } else if (source.url.includes('ivanturbinca.com')) {
+                finalUrl = `${baseUrl}/external-proxy/${encodeURIComponent(source.url)}`;
+            } else {
+                // For other URLs, proxy through our HLS proxy for CORS/URL rewriting
+                finalUrl = `${baseUrl}/hls-proxy/${encodeURIComponent(source.url)}`;
+            }
+
+            return {
+                url: finalUrl,
+                title: source.name || 'Live',
+                name: source.name || 'Live',
+                // Add quality badge if specified
+                ...(source.quality && { behaviorHints: { bingeGroup: `quality-${source.quality}` } })
+            };
+        });
+
+        allStreams.push(...customStreamObjects);
+    }
+
+    // Check if this channel has merged iptv-org streams
+    if (channel.iptvOrgChannelIds?.length > 0) {
+        // Collect streams from all merged iptv-org channels
+        channel.iptvOrgChannelIds.forEach(iptvChannelId => {
+            const iptvStreams = streams.filter(s => s.channel === iptvChannelId);
+
+            if (iptvStreams.length > 0) {
+                const iptvStreamObjects = iptvStreams.map(stream => {
+                    // Only proxy if the stream needs special handling
+                    const finalUrl = streamNeedsProxy(stream.url)
+                        ? `${baseUrl}/hls-proxy/${encodeURIComponent(stream.url)}`
+                        : stream.url;
+
+                    const title = stream.title || `${stream.feed || 'IPTV'} ${stream.quality || ''}`.trim();
+
+                    return {
+                        url: finalUrl,
+                        title: title,
+                        name: title
+                    };
+                });
+
+                allStreams.push(...iptvStreamObjects);
+            }
+        });
+    }
+
+    // If no custom sources, check for direct iptv-org streams (non-custom channels)
+    if (!channel.sources && !channel.iptvOrgChannelIds) {
+        const channelStreams = streams.filter(s => s.channel === channelId);
+
+        if (channelStreams.length > 0) {
+            const iptvStreamObjects = channelStreams.map(stream => {
+                // Only proxy if the stream needs special handling
+                const finalUrl = streamNeedsProxy(stream.url)
+                    ? `${baseUrl}/hls-proxy/${encodeURIComponent(stream.url)}`
+                    : stream.url;
+
+                const title = stream.title || `${stream.feed || 'Live'} ${stream.quality || ''}`.trim();
+
+                return {
+                    url: finalUrl,
+                    title: title,
+                    name: title
+                };
+            });
+
+            allStreams.push(...iptvStreamObjects);
+        }
+    }
+
+    if (allStreams.length === 0) {
+        return res.json({ streams: [] });
+    }
+
+    res.json({ streams: allStreams });
+});
+
+/* ---------------- TOKEN-BASED PLAYLIST PROXY ---------------- */
+app.get('/token-playlist/:sourceUrl(*)', async (req, res) => {
+    try {
+        const sourceUrl = decodeURIComponent(req.params.sourceUrl);
+
+        // Extract base URL for token generation
+        // Tokens must be generated using the base master playlist (e.g., video.m3u8)
+        // not sub-playlists (e.g., tracks-v1a1/mono.m3u8)
+        // For magicplaces.eu streams, the base is always at /channelname/video.m3u8
+        const urlObj = new URL(sourceUrl);
+        const pathParts = urlObj.pathname.split('/').filter(p => p);
+        // Base URL is protocol://host/firstPathSegment/video.m3u8
+        const baseTokenUrl = `${urlObj.protocol}//${urlObj.host}/${pathParts[0]}/video.m3u8`;
+
+        // Get a valid token using the base URL
+        const tokenData = await getValidToken(baseTokenUrl);
+
+        // Fetch the playlist through external proxy
+        const proxyUrl = `https://ivanturbinca.com/hls-proxy.php?src=${encodeURIComponent(sourceUrl)}`;
+        const response = await axios.get(proxyUrl, {
+            timeout: 10000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+                'Referer': 'https://ivanturbinca.com/'
+            }
+        });
+
+        const playlistData = response.data;
+
+        // Validate M3U8 format
+        if (!playlistData.includes('#EXTM3U')) {
+            return res.status(500).json({ error: 'Invalid playlist format' });
+        }
+
+        const baseUrl = `${req.protocol}://${req.headers.host}`;
+        const sourceBase = `${urlObj.protocol}//${urlObj.hostname}`;
+
+        // Rewrite URLs in the playlist
+        const rewrittenPlaylist = playlistData.replace(
+            /^(?!#|http)(.+)$/gm,
+            (match) => {
+                const trimmedMatch = match.trim();
+                if (!trimmedMatch) return match;
+
+                // Convert relative/proxy URLs to absolute magicplaces.eu URLs
+                let absoluteUrl;
+                if (trimmedMatch.startsWith('/hls-proxy.php?src=')) {
+                    // Extract the actual URL from the proxy parameter
+                    const srcMatch = trimmedMatch.match(/src=([^&]+)/);
+                    if (srcMatch) {
+                        absoluteUrl = decodeURIComponent(srcMatch[1]);
+                    } else {
+                        return match;
+                    }
+                } else if (trimmedMatch.startsWith('/')) {
+                    absoluteUrl = `${sourceBase}${trimmedMatch}`;
+                } else {
+                    absoluteUrl = trimmedMatch;
+                }
+
+                // Check if this is another m3u8 file or a video segment
+                if (absoluteUrl.includes('.m3u8')) {
+                    // Nested m3u8 playlists also go through token-playlist endpoint
+                    return `${baseUrl}/token-playlist/${encodeURIComponent(absoluteUrl)}`;
+                } else {
+                    // Video segments get tokens appended and are served directly by magicplaces.eu
+                    return appendTokenToUrl(absoluteUrl, tokenData);
+                }
+            }
+        );
+
+        // Return the rewritten playlist with CORS headers
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
+        res.send(rewrittenPlaylist);
+
+    } catch (error) {
+        console.error('❌ Token playlist error:', error.message);
+        res.status(500).json({
+            error: 'Failed to fetch token playlist',
+            details: error.message
+        });
+    }
+});
+
+/* ---------------- EXTERNAL PROXY WRAPPER ---------------- */
+app.get('/external-proxy/:streamUrl(*)', async (req, res) => {
+    try {
+        const streamUrl = decodeURIComponent(req.params.streamUrl);
+        const response = await axios.get(streamUrl, {
+            timeout: 10000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://rds.live/',
+                'Origin': 'https://rds.live'
+            }
+        });
+
+        const playlistData = response.data;
+        const urlObj = new URL(streamUrl);
+        const baseUrl = `${urlObj.protocol}//${urlObj.hostname}`;
+        const ourBaseUrl = `${req.protocol}://${req.headers.host}`;
+
+        const rewrittenPlaylist = playlistData.replace(
+            /^(?!#|http)(.+)$/gm,
+            (match) => {
+                const trimmedMatch = match.trim();
+                if (!trimmedMatch) return match;
+
+                const absoluteUrl = trimmedMatch.startsWith('/')
+                    ? `${baseUrl}${trimmedMatch}`
+                    : match;
+
+                // Wrap all URLs (both m3u8 and segments) through appropriate proxy
+                // m3u8 files go through external-proxy for URL rewriting
+                // segments go through hls-proxy for CORS and token handling
+                if (absoluteUrl.includes('.m3u8')) {
+                    return `${ourBaseUrl}/external-proxy/${encodeURIComponent(absoluteUrl)}`;
+                } else {
+                    // Route segments through hls-proxy to handle CORS
+                    return `${ourBaseUrl}/hls-proxy/${encodeURIComponent(absoluteUrl)}`;
+                }
+            }
+        );
+
+        // Return the rewritten playlist
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.send(rewrittenPlaylist);
+
+    } catch (error) {
+        console.error('External proxy wrapper error:', error.message);
+        res.status(500).json({ error: 'Failed to fetch external stream' });
+    }
 });
 
 /* ---------------- HLS PROXY ENDPOINT ---------------- */
@@ -301,39 +673,50 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
     try {
         const streamUrl = decodeURIComponent(req.params.streamUrl);
 
+        // Prepare headers - include Referer for external proxies
+        const requestHeaders = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        };
+
+        // Add Referer and Origin for external proxy requests to prevent 403 errors
+        try {
+            const urlObj = new URL(streamUrl);
+            if (urlObj.hostname === 'ivanturbinca.com') {
+                requestHeaders['Referer'] = 'https://rds.live/';
+                requestHeaders['Origin'] = 'https://rds.live';
+            }
+        } catch (e) {
+            // Invalid URL, continue without Referer
+        }
+
         // Fetch the stream content with redirect following
         const response = await axios.get(streamUrl, {
             responseType: 'stream',
             maxRedirects: 5,
-            timeout: 10000, // 10 second timeout
+            timeout: 10000,
             validateStatus: (status) => status < 400,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
+            headers: requestHeaders,
+            maxBodyLength: Infinity,
+            maxContentLength: Infinity
         });
 
         // Get final URL after redirects
         const finalUrl = response.request.res.responseUrl || streamUrl;
-
-        console.log('Stream proxy:', { originalUrl: streamUrl, finalUrl });
 
         // Detect dead streams that redirect to error pages
         const errorDomains = ['google.com', 'www.google.com', 'yahoo.com', 'bing.com'];
         try {
             const finalDomain = new URL(finalUrl).hostname;
             if (errorDomains.some(domain => finalDomain.includes(domain))) {
-                console.error('Stream redirected to error page:', finalUrl);
                 return res.status(404).json({
                     error: 'Stream not available',
                     message: 'This stream appears to be dead or blocked'
                 });
             }
         } catch (urlError) {
-            console.error('Invalid final URL:', finalUrl);
             return res.status(500).json({ error: 'Invalid redirect URL' });
         }
 
-        // Copy relevant headers
         const contentType = response.headers['content-type'] || 'application/vnd.apple.mpegurl';
         res.setHeader('Content-Type', contentType);
         res.setHeader('Access-Control-Allow-Origin', '*');
@@ -354,15 +737,6 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
                     // Check if it's an HTML error page
                     const isHTML = playlistData.trim().toLowerCase().startsWith('<!doctype') ||
                                    playlistData.trim().toLowerCase().startsWith('<html');
-
-                    // Log preview of what was received
-                    const preview = playlistData.substring(0, 200).replace(/\s+/g, ' ');
-                    console.error('Invalid M3U8 content received:', {
-                        url: streamUrl,
-                        contentType,
-                        isHTML,
-                        preview
-                    });
 
                     return res.status(404).json({
                         error: 'Stream unavailable',
@@ -387,7 +761,6 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
                                 return `${baseUrl}/hls-proxy/${encodeURIComponent(absoluteUrl)}`;
                             } catch (err) {
                                 // If URL parsing fails, return original line
-                                console.warn('Failed to parse segment URL:', match);
                                 return match;
                             }
                         }
@@ -395,7 +768,6 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
 
                     res.send(rewrittenPlaylist);
                 } catch (err) {
-                    console.error('Playlist rewrite error:', err.message);
                     res.status(500).json({ error: 'Failed to process playlist' });
                 }
             });
@@ -420,12 +792,6 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
             errorMessage = `Stream server returned ${error.response.status}`;
         }
 
-        console.error('Proxy error:', {
-            url: req.params.streamUrl ? decodeURIComponent(req.params.streamUrl) : 'unknown',
-            code: error.code,
-            message: error.message
-        });
-
         res.status(statusCode).json({
             error: errorMessage,
             details: error.message
@@ -439,8 +805,6 @@ app.get('/poster-png/:channelId/:logoUrl(*)', async (req, res) => {
         const logoUrl = decodeURIComponent(req.params.logoUrl);
         const channelId = decodeURIComponent(req.params.channelId);
         const cacheKey = `${channelId}-${logoUrl}`;
-
-        // Check cache first
         const cached = posterCache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < POSTER_TTL) {
             res.setHeader('Content-Type', 'image/png');
@@ -448,8 +812,6 @@ app.get('/poster-png/:channelId/:logoUrl(*)', async (req, res) => {
             res.setHeader('X-Cache', 'HIT');
             return res.send(cached.buffer);
         }
-
-        // Download logo with retry and timeout
         const logoResponse = await axios.get(logoUrl, {
             responseType: 'arraybuffer',
             timeout: 5000,
@@ -492,11 +854,8 @@ app.get('/poster-png/:channelId/:logoUrl(*)', async (req, res) => {
             }
         }).png().toBuffer();
 
-        // Calculate position to center logo
         const left = Math.round((480 - resizeWidth) / 2);
         const top = Math.round((720 - resizeHeight) / 2);
-
-        // Composite logo on background
         const finalImage = await sharp(background)
             .composite([{
                 input: resizedLogo,
@@ -506,7 +865,6 @@ app.get('/poster-png/:channelId/:logoUrl(*)', async (req, res) => {
             .png()
             .toBuffer();
 
-        // Cache the result
         posterCache.set(cacheKey, {
             buffer: finalImage,
             timestamp: Date.now()
@@ -519,8 +877,6 @@ app.get('/poster-png/:channelId/:logoUrl(*)', async (req, res) => {
 
     } catch (error) {
         console.error('Poster generation error:', error.message, 'for URL:', req.params.logoUrl);
-
-        // Redirect to original logo as fallback
         const logoUrl = decodeURIComponent(req.params.logoUrl);
         res.redirect(logoUrl);
     }

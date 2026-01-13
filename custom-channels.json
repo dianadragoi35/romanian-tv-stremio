@@ -1,0 +1,82 @@
+{
+  "ProTVHD": {
+    "id": "protv-hd-custom",
+    "name": "Pro TV HD",
+    "country": "RO",
+    "categories": ["general", "entertainment"],
+    "logo": "https://i.postimg.cc/mrvLsqPg/protv.png",
+    "languages": ["ro"],
+    "network": "Pro TV",
+    "sources": [
+      {
+        "name": "Sursa 1 (HD)",
+        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p9.magicplaces.eu/protvhd/video.m3u8",
+        "quality": "1080p"
+      }
+    ]
+  },
+  "Antena1": {
+    "id": "antena1-custom",
+    "name": "Antena 1",
+    "country": "RO",
+    "categories": ["general", "entertainment"],
+    "logo": "https://i.imgur.com/EPmwuuv.png",
+    "languages": ["ro"],
+    "network": "Antena 1",
+    "sources": [
+      {
+        "name": "Sursa 1 (HD)",
+        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p13.magicplaces.eu/antena1/video.m3u8",
+        "quality": "1080p"
+      }
+    ]
+  },
+  "Discovery": {
+    "id": "discovery-custom",
+    "name": "Discovery Channel",
+    "country": "RO",
+    "categories": ["documentary"],
+    "logo": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/2019_Discovery_logo.svg/320px-2019_Discovery_logo.svg.png",
+    "languages": ["ro"],
+    "network": "Discovery",
+    "sources": [
+      {
+        "name": "Sursa 1 (SD)",
+        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p11.magicplaces.eu/discoverysd/video.m3u8",
+        "quality": "480p"
+      }
+    ]
+  },
+  "NatGeo": {
+    "id": "natgeo-custom",
+    "name": "National Geographic",
+    "country": "RO",
+    "categories": ["documentary"],
+    "logo": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/Natgeologo.svg/320px-Natgeologo.svg.png",
+    "languages": ["ro"],
+    "network": "National Geographic",
+    "sources": [
+      {
+        "name": "Sursa 1 (HD)",
+        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p11.magicplaces.eu/natgeo/video.m3u8",
+        "quality": "720p"
+      }
+    ]
+  },
+  "Eurosport1": {
+    "id": "eurosport1-custom",
+    "name": "Eurosport 1",
+    "country": "RO",
+    "categories": ["sport"],
+    "logo": "https://logowik.com/content/uploads/images/474_eurosport.jpg",
+    "languages": ["ro"],
+    "network": "Eurosport",
+    "sources": [
+      {
+        "name": "Sursa 1 (SD)",
+        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p11.magicplaces.eu/eurosportsd/video.m3u8",
+        "quality": "480p"
+      }
+    ]
+  }
+}
