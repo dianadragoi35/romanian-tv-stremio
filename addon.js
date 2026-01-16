@@ -167,14 +167,18 @@ async function getData() {
 
             // If ETag changed, iptv-org has new data - bust cache immediately
             if (currentETag && currentETag !== lastETag) {
-                // Refresh cache
+                console.log('🔄 New data detected from iptv-org (ETag changed), refreshing cache...');
             } else {
+                // No new data, use cached version
                 return cache;
             }
         } catch (err) {
+            // If HEAD request fails, just use cache
             return cache;
         }
     }
+
+    console.log('Fetching fresh data from iptv-org API...');
 
     const [channelsRes, streamsRes] = await Promise.all([
         axios.get(IPTV_CHANNELS_URL),
@@ -708,12 +712,14 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
         try {
             const finalDomain = new URL(finalUrl).hostname;
             if (errorDomains.some(domain => finalDomain.includes(domain))) {
+                console.error('Stream redirected to error page:', finalUrl);
                 return res.status(404).json({
                     error: 'Stream not available',
                     message: 'This stream appears to be dead or blocked'
                 });
             }
         } catch (urlError) {
+            console.error('Invalid final URL:', finalUrl);
             return res.status(500).json({ error: 'Invalid redirect URL' });
         }
 
@@ -748,6 +754,9 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
                 const streamBaseUrl = finalUrl.substring(0, finalUrl.lastIndexOf('/') + 1);
 
                 try {
+                    // Detect if this is a master playlist (contains #EXT-X-STREAM-INF) or media playlist
+                    const isMasterPlaylist = playlistData.includes('#EXT-X-STREAM-INF');
+
                     const rewrittenPlaylist = playlistData.replace(
                         /^(?!#|http)(.+)$/gm,
                         (match) => {
@@ -758,9 +767,21 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
                                 const absoluteUrl = trimmedMatch.startsWith('/')
                                     ? new URL(trimmedMatch, new URL(finalUrl).origin).href
                                     : streamBaseUrl + trimmedMatch;
-                                return `${baseUrl}/hls-proxy/${encodeURIComponent(absoluteUrl)}`;
+
+                                // Only proxy if it's another M3U8 playlist (master -> media playlist)
+                                // For video segments (.ts, .m4s, etc), use direct URLs to save bandwidth
+                                const isPlaylist = trimmedMatch.includes('.m3u8') || trimmedMatch.includes('.m3u');
+
+                                if (isPlaylist) {
+                                    // Proxy nested playlists
+                                    return `${baseUrl}/hls-proxy/${encodeURIComponent(absoluteUrl)}`;
+                                } else {
+                                    // Return direct URL for video segments (saves bandwidth!)
+                                    return absoluteUrl;
+                                }
                             } catch (err) {
                                 // If URL parsing fails, return original line
+                                console.warn('Failed to parse segment URL:', match);
                                 return match;
                             }
                         }
@@ -768,12 +789,13 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
 
                     res.send(rewrittenPlaylist);
                 } catch (err) {
+                    console.error('Playlist rewrite error:', err.message);
                     res.status(500).json({ error: 'Failed to process playlist' });
                 }
             });
         } else {
-            // For video segments, just pipe the stream
-            response.data.pipe(res);
+            // For video segments, redirect to origin instead of proxying to save bandwidth
+            res.redirect(307, finalUrl);
         }
 
     } catch (error) {
@@ -792,6 +814,12 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
             errorMessage = `Stream server returned ${error.response.status}`;
         }
 
+        console.error('Proxy error:', {
+            url: req.params.streamUrl ? decodeURIComponent(req.params.streamUrl) : 'unknown',
+            code: error.code,
+            message: error.message
+        });
+
         res.status(statusCode).json({
             error: errorMessage,
             details: error.message
@@ -805,6 +833,8 @@ app.get('/poster-png/:channelId/:logoUrl(*)', async (req, res) => {
         const logoUrl = decodeURIComponent(req.params.logoUrl);
         const channelId = decodeURIComponent(req.params.channelId);
         const cacheKey = `${channelId}-${logoUrl}`;
+
+        // Check cache first
         const cached = posterCache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < POSTER_TTL) {
             res.setHeader('Content-Type', 'image/png');
@@ -812,6 +842,8 @@ app.get('/poster-png/:channelId/:logoUrl(*)', async (req, res) => {
             res.setHeader('X-Cache', 'HIT');
             return res.send(cached.buffer);
         }
+
+        // Download logo with retry and timeout
         const logoResponse = await axios.get(logoUrl, {
             responseType: 'arraybuffer',
             timeout: 5000,
