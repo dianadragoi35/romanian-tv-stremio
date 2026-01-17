@@ -14,6 +14,7 @@ const COUNTRY = 'RO';
 const IPTV_CHANNELS_URL = 'https://iptv-org.github.io/api/channels.json';
 const IPTV_STREAMS_URL = 'https://iptv-org.github.io/api/streams.json';
 const IPTV_LOGOS_URL = 'https://iptv-org.github.io/api/logos.json';
+const POSTERS_DIR = path.join(__dirname, 'posters');
 
 // Priority channels to show first (case-insensitive matching)
 const PRIORITY_CHANNELS = [
@@ -70,8 +71,10 @@ let logosCache = null;
 let logosLastFetch = 0;
 const LOGOS_TTL = 24 * 60 * 60 * 1000; // 24 hours
 
-let posterCache = new Map();
-const POSTER_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days
+/* ---------------- POSTER QUEUE (rate limit protection) ---------------- */
+const posterQueue = [];
+let isProcessingQueue = false;
+const POSTER_DELAY_MS = 500; // 500ms between poster fetches to avoid rate limits
 
 /* ---------------- TOKEN MANAGEMENT ---------------- */
 // Token cache: Map<sourceUrl, {token, remote, expires}>
@@ -248,6 +251,13 @@ async function fetchLogos() {
 }
 
 /* ---------------- HELPER FUNCTIONS ---------------- */
+// Ensure posters directory exists
+function ensurePostersDir() {
+    if (!fs.existsSync(POSTERS_DIR)) {
+        fs.mkdirSync(POSTERS_DIR, { recursive: true });
+    }
+}
+
 // Check if a stream URL requires proxying through our server
 function streamNeedsProxy(url) {
     try {
@@ -281,11 +291,7 @@ async function getPoster(channel) {
     if (channel.logo && !channel.logo.endsWith('.svg')) {
         return channel.logo;
     }
-    if (channel.id) {
-        return `https://iptv-org.github.io/logo/${channel.id}.png`;
-    }
 
-    // Fallback: Stremio default background
     return 'https://dl.strem.io/addon-background-landscape.jpg';
 }
 
@@ -320,43 +326,61 @@ async function toMeta(channel, baseUrl = '') {
 
 /* ---------------- MANIFEST ENDPOINT ---------------- */
 app.get('/manifest.json', async (req, res) => {
-    const { channels } = await getData();
-    const allGenres = [...new Set(channels.flatMap(c => c.categories || []))].sort();
     const baseUrl = `${req.protocol}://${req.headers.host}`;
 
-    res.json({
-        id: 'org.romanian-tv',
-        name: 'Romanian TV',
-        version: '2.0.0',
-        description: 'Canale TV românești live',
-        logo: `${baseUrl}/logo.png`,
-        resources: ['catalog', 'meta', 'stream'],
-        types: ['tv'],
-        idPrefixes: ['rotv-'],
-        catalogs: [
-            {
-                type: 'tv',
-                id: 'rotv-all',
-                name: 'RO TV',
-                extra: [
-                    { name: 'search', isRequired: false },
-                    { name: 'genre', isRequired: false, options: allGenres },
-                    { name: 'skip', isRequired: false }
-                ]
+    try {
+        const { channels } = await getData();
+        const allGenres = [...new Set(channels.flatMap(c => c.categories || []))].sort();
+
+        res.json({
+            id: 'org.romanian-tv',
+            name: 'Romanian TV',
+            version: '2.0.0',
+            description: 'Canale TV românești live',
+            logo: `${baseUrl}/logo.png`,
+            resources: ['catalog', 'meta', 'stream'],
+            types: ['tv'],
+            idPrefixes: ['rotv-'],
+            catalogs: [
+                {
+                    type: 'tv',
+                    id: 'rotv-all',
+                    name: 'RO TV',
+                    extra: [
+                        { name: 'search', isRequired: false },
+                        { name: 'genre', isRequired: false, options: allGenres },
+                        { name: 'skip', isRequired: false }
+                    ]
+                }
+            ],
+            stremioAddonsConfig: {
+                issuer: "https://stremio-addons.net",
+                signature: "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4Q0JDLUhTMjU2In0..Bv_G0RGi_DFiUZ-2wRvKNQ.Tt-cEjr_Xii3jek_G2Xv3rsiARKPNr62IvzEO29vsHHqdo3JtQ2JrGWAacJeXwELQRk1P6tzcTR--aDsOa-dCCHyC99nm0zuU5C3CfxBsQr3_woOsXu6N9aCTMo3jKbC.cd18-EjFIdJzqmKUImQwyQ"
             }
-        ],
-        stremioAddonsConfig: {
-            issuer: "https://stremio-addons.net",
-            signature: "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4Q0JDLUhTMjU2In0..Bv_G0RGi_DFiUZ-2wRvKNQ.Tt-cEjr_Xii3jek_G2Xv3rsiARKPNr62IvzEO29vsHHqdo3JtQ2JrGWAacJeXwELQRk1P6tzcTR--aDsOa-dCCHyC99nm0zuU5C3CfxBsQr3_woOsXu6N9aCTMo3jKbC.cd18-EjFIdJzqmKUImQwyQ"
-        }
-    });
+        });
+    } catch (error) {
+        console.error('Manifest error:', error.message);
+        // Return basic manifest even if data fetch fails - addon stays "online"
+        res.json({
+            id: 'org.romanian-tv',
+            name: 'Romanian TV',
+            version: '2.0.0',
+            description: 'Canale TV românești live (temporarily limited)',
+            logo: `${baseUrl}/logo.png`,
+            resources: ['catalog', 'meta', 'stream'],
+            types: ['tv'],
+            idPrefixes: ['rotv-'],
+            catalogs: []
+        });
+    }
 });
 
 /* ---------------- CATALOG ENDPOINT ---------------- */
 app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
-    const params = Object.fromEntries(new URLSearchParams(req.params.extra || ''));
-    const { channels, streams } = await getData();
-    const skip = parseInt(params.skip) || 0;
+    try {
+        const params = Object.fromEntries(new URLSearchParams(req.params.extra || ''));
+        const { channels, streams } = await getData();
+        const skip = parseInt(params.skip) || 0;
 
     // Filter channels that have available streams (either from iptv-org or custom sources)
     let results = channels.filter(c =>
@@ -402,6 +426,20 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
     const metas = await Promise.all(results.map(channel => toMeta(channel, baseUrl)));
 
     res.json({ metas });
+    } catch (error) {
+        console.error('Catalog error:', error.message);
+        res.json({ metas: [] });
+    }
+});
+
+/* ---------------- HEALTH CHECK ENDPOINT ---------------- */
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'ok',
+        uptime: Math.floor(process.uptime()),
+        cacheAge: cache.channels ? Math.floor((Date.now() - lastFetch) / 1000) : null,
+        memory: Math.floor(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB'
+    });
 });
 
 /* ---------------- META ENDPOINT ---------------- */
@@ -827,90 +865,95 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
     }
 });
 
+/* ---------------- POSTER GENERATOR HELPERS ---------------- */
+const BG_COLOR = { r: 26, g: 26, b: 46, alpha: 1 }; // #1a1a2e
+const pendingPosters = new Set(); // Track posters being generated to avoid duplicate work
+
+async function generatePosterInBackground(channelId, logoUrl) {
+    const safeChannelId = channelId.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const posterPath = path.join(POSTERS_DIR, `${safeChannelId}.png`);
+
+    // Skip if already exists or already being processed
+    if (fs.existsSync(posterPath) || pendingPosters.has(safeChannelId)) {
+        return;
+    }
+
+    pendingPosters.add(safeChannelId);
+
+    try {
+        ensurePostersDir();
+
+        const logoResponse = await axios.get(logoUrl, {
+            responseType: 'arraybuffer',
+            timeout: 10000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+
+        const logoBuffer = Buffer.from(logoResponse.data);
+
+        const finalImage = await sharp(logoBuffer, { density: 300 })
+            .resize(320, 400, {
+                fit: 'contain',
+                background: BG_COLOR
+            })
+            .extend({
+                top: 160,
+                bottom: 160,
+                left: 80,
+                right: 80,
+                background: BG_COLOR
+            })
+            .png()
+            .toBuffer();
+
+        fs.writeFileSync(posterPath, finalImage);
+        console.log(`💾 Poster generated: ${safeChannelId}.png`);
+
+    } catch (error) {
+        // Only log non-429 errors (rate limits are expected during warmup)
+        if (!error.message?.includes('429')) {
+            console.error(`Poster error for ${safeChannelId}:`, error.message);
+        }
+    } finally {
+        pendingPosters.delete(safeChannelId);
+    }
+}
+
+// Process poster queue with delays to avoid rate limits
+async function processPostersWithDelay(items) {
+    for (const { channelId, logoUrl } of items) {
+        await generatePosterInBackground(channelId, logoUrl);
+        await new Promise(resolve => setTimeout(resolve, POSTER_DELAY_MS));
+    }
+}
+
 /* ---------------- POSTER GENERATOR ENDPOINT (PNG) ---------------- */
 app.get('/poster-png/:channelId/:logoUrl(*)', async (req, res) => {
     try {
         const logoUrl = decodeURIComponent(req.params.logoUrl);
         const channelId = decodeURIComponent(req.params.channelId);
-        const cacheKey = `${channelId}-${logoUrl}`;
 
-        // Check cache first
-        const cached = posterCache.get(cacheKey);
-        if (cached && Date.now() - cached.timestamp < POSTER_TTL) {
-            res.setHeader('Content-Type', 'image/png');
-            res.setHeader('Cache-Control', 'public, max-age=604800'); // Cache for 7 days
+        const safeChannelId = channelId.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const posterPath = path.join(POSTERS_DIR, `${safeChannelId}.png`);
+
+        // Check disk first - serve immediately if exists
+        if (fs.existsSync(posterPath)) {
+            res.setHeader('Cache-Control', 'public, max-age=604800');
             res.setHeader('X-Cache', 'HIT');
-            return res.send(cached.buffer);
+            return res.sendFile(posterPath);
         }
 
-        // Download logo with retry and timeout
-        const logoResponse = await axios.get(logoUrl, {
-            responseType: 'arraybuffer',
-            timeout: 5000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-        });
-        const logoBuffer = Buffer.from(logoResponse.data);
+        // Poster doesn't exist - queue background generation and return fallback
+        // This prevents rate limiting and keeps the UI responsive
+        generatePosterInBackground(channelId, logoUrl);
 
-        // Get logo dimensions and resize to fit in 320x400 box (with padding for TV)
-        const logoImage = sharp(logoBuffer);
-        const logoMetadata = await logoImage.metadata();
-
-        // Calculate resize dimensions maintaining aspect ratio
-        const maxWidth = 320;
-        const maxHeight = 400;
-        let resizeWidth = logoMetadata.width;
-        let resizeHeight = logoMetadata.height;
-
-        if (resizeWidth > maxWidth || resizeHeight > maxHeight) {
-            const widthRatio = maxWidth / resizeWidth;
-            const heightRatio = maxHeight / resizeHeight;
-            const ratio = Math.min(widthRatio, heightRatio);
-            resizeWidth = Math.round(resizeWidth * ratio);
-            resizeHeight = Math.round(resizeHeight * ratio);
-        }
-
-        // Resize logo
-        const resizedLogo = await sharp(logoBuffer)
-            .resize(resizeWidth, resizeHeight, { fit: 'inside' })
-            .toBuffer();
-
-        // Create dark background (480x720 - portrait 2:3 ratio)
-        const background = await sharp({
-            create: {
-                width: 480,
-                height: 720,
-                channels: 4,
-                background: { r: 26, g: 26, b: 46, alpha: 1 } // #1a1a2e
-            }
-        }).png().toBuffer();
-
-        const left = Math.round((480 - resizeWidth) / 2);
-        const top = Math.round((720 - resizeHeight) / 2);
-        const finalImage = await sharp(background)
-            .composite([{
-                input: resizedLogo,
-                left,
-                top
-            }])
-            .png()
-            .toBuffer();
-
-        posterCache.set(cacheKey, {
-            buffer: finalImage,
-            timestamp: Date.now()
-        });
-
-        res.setHeader('Content-Type', 'image/png');
-        res.setHeader('Cache-Control', 'public, max-age=604800'); // Cache for 7 days
-        res.setHeader('X-Cache', 'MISS');
-        res.send(finalImage);
+        // Return fallback image immediately (Stremio will cache it, but we'll have the real one next time)
+        res.redirect(302, 'https://dl.strem.io/addon-background-landscape.jpg');
 
     } catch (error) {
-        console.error('Poster generation error:', error.message, 'for URL:', req.params.logoUrl);
-        const logoUrl = decodeURIComponent(req.params.logoUrl);
-        res.redirect(logoUrl);
+        res.redirect(302, 'https://dl.strem.io/addon-background-landscape.jpg');
     }
 });
 
