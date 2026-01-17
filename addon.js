@@ -3,7 +3,6 @@ require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
-const sharp = require('sharp');
 const fs = require('fs');
 const path = require('path');
 
@@ -70,11 +69,6 @@ const TTL = 60 * 60 * 1000; // 1 hour
 let logosCache = null;
 let logosLastFetch = 0;
 const LOGOS_TTL = 24 * 60 * 60 * 1000; // 24 hours
-
-/* ---------------- POSTER QUEUE (rate limit protection) ---------------- */
-const posterQueue = [];
-let isProcessingQueue = false;
-const POSTER_DELAY_MS = 500; // 500ms between poster fetches to avoid rate limits
 
 /* ---------------- TOKEN MANAGEMENT ---------------- */
 // Token cache: Map<sourceUrl, {token, remote, expires}>
@@ -251,13 +245,6 @@ async function fetchLogos() {
 }
 
 /* ---------------- HELPER FUNCTIONS ---------------- */
-// Ensure posters directory exists
-function ensurePostersDir() {
-    if (!fs.existsSync(POSTERS_DIR)) {
-        fs.mkdirSync(POSTERS_DIR, { recursive: true });
-    }
-}
-
 // Check if a stream URL requires proxying through our server
 function streamNeedsProxy(url) {
     try {
@@ -865,91 +852,22 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
     }
 });
 
-/* ---------------- POSTER GENERATOR HELPERS ---------------- */
-const BG_COLOR = { r: 26, g: 26, b: 46, alpha: 1 }; // #1a1a2e
-const pendingPosters = new Set(); // Track posters being generated to avoid duplicate work
-
-async function generatePosterInBackground(channelId, logoUrl) {
-    const safeChannelId = channelId.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const posterPath = path.join(POSTERS_DIR, `${safeChannelId}.png`);
-
-    // Skip if already exists or already being processed
-    if (fs.existsSync(posterPath) || pendingPosters.has(safeChannelId)) {
-        return;
-    }
-
-    pendingPosters.add(safeChannelId);
-
-    try {
-        ensurePostersDir();
-
-        const logoResponse = await axios.get(logoUrl, {
-            responseType: 'arraybuffer',
-            timeout: 10000,
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-        });
-
-        const logoBuffer = Buffer.from(logoResponse.data);
-
-        const finalImage = await sharp(logoBuffer, { density: 300 })
-            .resize(320, 400, {
-                fit: 'contain',
-                background: BG_COLOR
-            })
-            .extend({
-                top: 160,
-                bottom: 160,
-                left: 80,
-                right: 80,
-                background: BG_COLOR
-            })
-            .png()
-            .toBuffer();
-
-        fs.writeFileSync(posterPath, finalImage);
-        console.log(`💾 Poster generated: ${safeChannelId}.png`);
-
-    } catch (error) {
-        // Only log non-429 errors (rate limits are expected during warmup)
-        if (!error.message?.includes('429')) {
-            console.error(`Poster error for ${safeChannelId}:`, error.message);
-        }
-    } finally {
-        pendingPosters.delete(safeChannelId);
-    }
-}
-
-// Process poster queue with delays to avoid rate limits
-async function processPostersWithDelay(items) {
-    for (const { channelId, logoUrl } of items) {
-        await generatePosterInBackground(channelId, logoUrl);
-        await new Promise(resolve => setTimeout(resolve, POSTER_DELAY_MS));
-    }
-}
-
-/* ---------------- POSTER GENERATOR ENDPOINT (PNG) ---------------- */
+/* ---------------- POSTER ENDPOINT ---------------- */
+// Serves pre-generated posters from disk (use warmup-posters.js to generate)
 app.get('/poster-png/:channelId/:logoUrl(*)', async (req, res) => {
     try {
-        const logoUrl = decodeURIComponent(req.params.logoUrl);
         const channelId = decodeURIComponent(req.params.channelId);
-
         const safeChannelId = channelId.replace(/[^a-zA-Z0-9._-]/g, '_');
         const posterPath = path.join(POSTERS_DIR, `${safeChannelId}.png`);
 
-        // Check disk first - serve immediately if exists
+        // Serve from disk if exists
         if (fs.existsSync(posterPath)) {
             res.setHeader('Cache-Control', 'public, max-age=604800');
             res.setHeader('X-Cache', 'HIT');
             return res.sendFile(posterPath);
         }
 
-        // Poster doesn't exist - queue background generation and return fallback
-        // This prevents rate limiting and keeps the UI responsive
-        generatePosterInBackground(channelId, logoUrl);
-
-        // Return fallback image immediately (Stremio will cache it, but we'll have the real one next time)
+        // Poster doesn't exist - redirect to Stremio default
         res.redirect(302, 'https://dl.strem.io/addon-background-landscape.jpg');
 
     } catch (error) {
