@@ -78,5 +78,85 @@
         "quality": "480p"
       }
     ]
+  },
+  "Eurosport2": {
+    "id": "eurosport2-custom",
+    "name": "Eurosport 2",
+    "country": "RO",
+    "categories": ["sport"],
+    "logo": "https://logowik.com/content/uploads/images/474_eurosport.jpg",
+    "languages": ["ro"],
+    "network": "Eurosport",
+    "sources": [
+      {
+        "name": "Sursa 1 (SD)",
+        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p11.magicplaces.eu/eurosport2sd/video.m3u8",
+        "quality": "480p"
+      }
+    ]
+  },
+  "DigiSport1": {
+    "id": "digisport1-custom",
+    "name": "Digi Sport 1 HD",
+    "country": "RO",
+    "categories": ["sport"],
+    "logo": "https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Fdtvnews.hu%2Fsites%2Fdefault%2Ffiles%2Fwide_images%2Fdigi_sport_wide.png",
+    "languages": ["ro"],
+    "network": "Digi Sport",
+    "sources": [
+      {
+        "name": "Sursa 1 (HD)",
+        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p13.magicplaces.eu/digisport1hd/video.m3u8",
+        "quality": "1080p"
+      }
+    ]
+  },
+  "DigiSport2": {
+    "id": "digisport2-custom",
+    "name": "Digi Sport 2 HD",
+    "country": "RO",
+    "categories": ["sport"],
+    "logo": "https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Fdtvnews.hu%2Fsites%2Fdefault%2Ffiles%2Fwide_images%2Fdigi_sport_wide.png",
+    "languages": ["ro"],
+    "network": "Digi Sport",
+    "sources": [
+      {
+        "name": "Sursa 1 (HD)",
+        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p13.magicplaces.eu/digisport2hd/video.m3u8",
+        "quality": "1080p"
+      }
+    ]
+  },
+  "DigiSport3": {
+    "id": "digisport3-custom",
+    "name": "Digi Sport 3 HD",
+    "country": "RO",
+    "categories": ["sport"],
+    "logo": "https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Fdtvnews.hu%2Fsites%2Fdefault%2Ffiles%2Fwide_images%2Fdigi_sport_wide.png",
+    "languages": ["ro"],
+    "network": "Digi Sport",
+    "sources": [
+      {
+        "name": "Sursa 1 (HD)",
+        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p13.magicplaces.eu/digisport3hd/video.m3u8",
+        "quality": "1080p"
+      }
+    ]
+  },
+  "DigiSport4": {
+    "id": "digisport4-custom",
+    "name": "Digi Sport 4 HD",
+    "country": "RO",
+    "categories": ["sport"],
+    "logo": "https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Fdtvnews.hu%2Fsites%2Fdefault%2Ffiles%2Fwide_images%2Fdigi_sport_wide.png",
+    "languages": ["ro"],
+    "network": "Digi Sport",
+    "sources": [
+      {
+        "name": "Sursa 1 (HD)",
+        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p13.magicplaces.eu/digisport4hd/video.m3u8",
+        "quality": "1080p"
+      }
+    ]
   }
 }

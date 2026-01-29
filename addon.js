@@ -22,9 +22,11 @@ const PRIORITY_CHANNELS = [
     'discovery',
     'national geographic',
     'eurosport 1',
-    'digi 24',
-    'euronews romania',
-    'kiss tv'
+    'eurosport 2',
+    'digi sport 1',
+    'digi sport 2',
+    'digi sport 3',
+    'digi sport 4'
 ];
 
 /* ---------------- CUSTOM CHANNELS ---------------- */
