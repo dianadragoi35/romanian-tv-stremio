@@ -36,7 +36,7 @@
     "name": "Discovery Channel",
     "country": "RO",
     "categories": ["documentary"],
-    "logo": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/2019_Discovery_logo.svg/320px-2019_Discovery_logo.svg.png",
+    "logo": "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEj-7vYagszmn7MFVn_6AqXTCaruDT627lN_vWuUkpKY_hc2XMeGPx6xCYLkF3lHIngKdOR50-UDjdlSyLV6uUvZUD1LXPNgHR9onBwFoj-bYMOsEbBU7eAVe4OxqISRlyNCuu4fZxNnKnvN/s1600/Discovery-Channel-rebrand-April-2019.jpg",
     "languages": ["ro"],
     "network": "Discovery",
     "sources": [
@@ -156,6 +156,54 @@
         "name": "Sursa 1 (HD)",
         "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p13.magicplaces.eu/digisport4hd/video.m3u8",
         "quality": "1080p"
+      }
+    ]
+  },
+  "CrimeInvestigation": {
+    "id": "crime-investigation-custom",
+    "name": "Crime & Investigation",
+    "country": "RO",
+    "categories": ["documentary"],
+    "logo": "https://yt3.googleusercontent.com/uiaSRk4UcUkLFd4DA7n8cSn5gzSVvsEP66ML3AeZ6DBiHsgUjXBGWUnUQkudtYFO-_U4sFYp=s900-c-k-c0x00ffffff-no-rj",
+    "languages": ["ro"],
+    "network": "Crime & Investigation",
+    "sources": [
+      {
+        "name": "Sursa 1 (SD)",
+        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p13.magicplaces.eu/backup.crime/video.m3u8",
+        "quality": "480p"
+      }
+    ]
+  },
+  "NatGeoWild": {
+    "id": "natgeo-wild-custom",
+    "name": "National Geographic Wild",
+    "country": "RO",
+    "categories": ["documentary"],
+    "logo": "https://m.media-amazon.com/images/I/61rYWQU3MpL._SL1500_.jpg",
+    "languages": ["ro"],
+    "network": "National Geographic",
+    "sources": [
+      {
+        "name": "Sursa 1 (SD)",
+        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p11.magicplaces.eu/natgeowildsd/video.m3u8",
+        "quality": "480p"
+      }
+    ]
+  },
+  "ComedyCentral": {
+    "id": "comedy-central-custom",
+    "name": "Comedy Central",
+    "country": "RO",
+    "categories": ["entertainment"],
+    "logo": "https://logos-world.net/wp-content/uploads/2021/02/Comedy-Central-Symbol.jpg",
+    "languages": ["ro"],
+    "network": "Comedy Central",
+    "sources": [
+      {
+        "name": "Sursa 1 (SD)",
+        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p11.magicplaces.eu/comedycentralsd/video.m3u8",
+        "quality": "480p"
       }
     ]
   }

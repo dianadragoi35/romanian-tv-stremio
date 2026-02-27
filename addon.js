@@ -21,6 +21,8 @@ const PRIORITY_CHANNELS = [
     'antena 1',
     'discovery',
     'national geographic',
+    'crime & investigation',
+    'comedy central',
     'eurosport 1',
     'eurosport 2',
     'digi sport 1',
