@@ -52,7 +52,7 @@
     "name": "National Geographic",
     "country": "RO",
     "categories": ["documentary"],
-    "logo": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/Natgeologo.svg/320px-Natgeologo.svg.png",
+    "logo": "https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Fassets-cdn.nationalgeographic.com%2Fnatgeo%2Fstatic%2Fdefault.NG.logo.dark.jpg&f=1&nofb=1&ipt=c04aa9866e968e4343d90af7cddbfb45d5c75e49ad6393a0e2be4ffa88832bc2",
     "languages": ["ro"],
     "network": "National Geographic",
     "sources": [
@@ -164,12 +164,17 @@
     "name": "Crime & Investigation",
     "country": "RO",
     "categories": ["documentary"],
-    "logo": "https://yt3.googleusercontent.com/uiaSRk4UcUkLFd4DA7n8cSn5gzSVvsEP66ML3AeZ6DBiHsgUjXBGWUnUQkudtYFO-_U4sFYp=s900-c-k-c0x00ffffff-no-rj",
+    "logo": "https://cdn.skymedia.co.uk/wp-content/uploads/2016/01/Discorvey-ID-FI-ogo.png",
     "languages": ["ro"],
     "network": "Crime & Investigation",
     "sources": [
       {
-        "name": "Sursa 1 (SD)",
+        "name": "Sursa 1",
+        "url": "https://onyx1.mofta1.cfd/crymeinv2/usergen9o4n2srnd.m3u8",
+        "quality": "720p"
+      },
+      {
+        "name": "Sursa 2 (SD)",
         "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p13.magicplaces.eu/backup.crime/video.m3u8",
         "quality": "480p"
       }
@@ -204,6 +209,38 @@
         "name": "Sursa 1 (SD)",
         "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p11.magicplaces.eu/comedycentralsd/video.m3u8",
         "quality": "480p"
+      }
+    ]
+  },
+  "IDInvest": {
+    "id": "idinvest-custom",
+    "name": "Investigation Discovery",
+    "country": "RO",
+    "categories": ["documentary"],
+    "logo": "https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Fwallpapers.com%2Fimages%2Fhd%2Finvestigation-discovery-channel-logo-ied70czdy53zgato.png&f=1&nofb=1&ipt=bc0311fe674f80ed735c04dfb05b5c11a5345ee25e4b6a89feeabc280cac6b1c",
+    "languages": ["ro"],
+    "network": "Canale TV",
+    "sources": [
+      {
+        "name": "Sursa 1",
+        "url": "https://onyx1.mofta1.cfd/cryme/usergendxn0487rnd.m3u8",
+        "quality": "720p"
+      }
+    ]
+  },
+  "NatGeoPeople": {
+    "id": "natgeo-people-custom",
+    "name": "National Geographic People",
+    "country": "RO",
+    "categories": ["documentary"],
+    "logo": "https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Fassets-cdn.nationalgeographic.com%2Fnatgeo%2Fstatic%2Fdefault.NG.logo.dark.jpg&f=1&nofb=1&ipt=c04aa9866e968e4343d90af7cddbfb45d5c75e49ad6393a0e2be4ffa88832bc2",
+    "languages": ["ro"],
+    "network": "National Geographic",
+    "sources": [
+      {
+        "name": "Sursa 1",
+        "url": "https://onyx1.mofta1.cfd/crymeinv2/usergen9o4n2srnd.m3u8",
+        "quality": "720p"
       }
     ]
   }

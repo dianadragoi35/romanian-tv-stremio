@@ -21,6 +21,7 @@ const PRIORITY_CHANNELS = [
     'antena 1',
     'discovery',
     'national geographic',
+    'investigation discovery',
     'crime & investigation',
     'comedy central',
     'eurosport 1',
@@ -258,6 +259,8 @@ function streamNeedsProxy(url) {
         // Streams that need special headers or token management
         if (hostname.includes('ivanturbinca.com')) return true;
         if (hostname.includes('magicplaces.eu')) return true;
+        if (hostname.includes('mofta1.cfd')) return true;
+        if (hostname.includes('canale-tv.com')) return true;
         if (url.includes('hls-proxy.php')) return true;
 
         // Most iptv-org streams work without proxy (no CORS issues, no special headers needed)
@@ -717,6 +720,9 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
             if (urlObj.hostname === 'ivanturbinca.com') {
                 requestHeaders['Referer'] = 'https://rds.live/';
                 requestHeaders['Origin'] = 'https://rds.live';
+            } else if (urlObj.hostname.includes('mofta1.cfd') || urlObj.hostname.includes('canale-tv.com')) {
+                requestHeaders['Referer'] = 'https://canale-tv.com/';
+                requestHeaders['Origin'] = 'https://canale-tv.com';
             }
         } catch (e) {
             // Invalid URL, continue without Referer
@@ -752,14 +758,25 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
             return res.status(500).json({ error: 'Invalid redirect URL' });
         }
 
-        const contentType = response.headers['content-type'] || 'application/vnd.apple.mpegurl';
+        // Detect content type - override for disguised extensions (mofta1.cfd uses .htm/.html)
+        let contentType = response.headers['content-type'] || 'application/vnd.apple.mpegurl';
+        const isDisguisedPlaylist = streamUrl.includes('mofta1.cfd') && (streamUrl.endsWith('.htm') || streamUrl.endsWith('.m3u8'));
+        const isDisguisedSegment = streamUrl.includes('mofta1.cfd') && streamUrl.endsWith('.html');
+
+        if (isDisguisedPlaylist) {
+            contentType = 'application/vnd.apple.mpegurl';
+        } else if (isDisguisedSegment) {
+            contentType = 'video/mp2t';
+        }
+
         res.setHeader('Content-Type', contentType);
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
 
         // If it's an M3U8 playlist, rewrite URLs to go through proxy
-        if (contentType.includes('mpegurl') || contentType.includes('m3u8') || streamUrl.includes('.m3u8')) {
+        const isPlaylistContent = contentType.includes('mpegurl') || contentType.includes('m3u8') || streamUrl.includes('.m3u8') || isDisguisedPlaylist;
+        if (isPlaylistContent) {
             let playlistData = '';
 
             response.data.on('data', (chunk) => {
@@ -799,10 +816,14 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
 
                                 // Only proxy if it's another M3U8 playlist (master -> media playlist)
                                 // For video segments (.ts, .m4s, etc), use direct URLs to save bandwidth
-                                const isPlaylist = trimmedMatch.includes('.m3u8') || trimmedMatch.includes('.m3u');
+                                // Use endsWith to distinguish .htm (playlist) from .html (segment)
+                                const isPlaylist = trimmedMatch.endsWith('.m3u8') || trimmedMatch.endsWith('.m3u') || trimmedMatch.endsWith('.htm');
 
-                                if (isPlaylist) {
-                                    // Proxy nested playlists
+                                // Check if this stream requires proxying all requests (including segments)
+                                const requiresFullProxy = finalUrl.includes('mofta1.cfd') || finalUrl.includes('canale-tv.com');
+
+                                if (isPlaylist || requiresFullProxy) {
+                                    // Proxy nested playlists and all requests for protected streams
                                     return `${baseUrl}/hls-proxy/${encodeURIComponent(absoluteUrl)}`;
                                 } else {
                                     // Return direct URL for video segments (saves bandwidth!)
@@ -822,6 +843,9 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
                     res.status(500).json({ error: 'Failed to process playlist' });
                 }
             });
+        } else if (isDisguisedSegment) {
+            // For disguised segments (mofta1.cfd), stream the data directly
+            response.data.pipe(res);
         } else {
             // For video segments, redirect to origin instead of proxying to save bandwidth
             res.redirect(307, finalUrl);
