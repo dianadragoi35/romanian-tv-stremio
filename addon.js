@@ -210,12 +210,12 @@ app.get('/catalog/:type/:id/:extra?.json', async (req, res) => {
 
     //TODO: get only streams that have available endpoints
     //for now, we exclude blocked channels
-    const EXCLUDED_CHANNELS = ['pro tv'];
-    results = results.filter(c =>
-        !EXCLUDED_CHANNELS.some(excluded =>
-            c.name.toLowerCase() === excluded.toLowerCase()
-        )
-    );
+    // const EXCLUDED_CHANNELS = [];
+    // results = results.filter(c =>
+    //     !EXCLUDED_CHANNELS.some(excluded =>
+    //         c.name.toLowerCase() === excluded.toLowerCase()
+    //     )
+    // );
 
     // Apply genre filter if provided
     if (params.genre) {
