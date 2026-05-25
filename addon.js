@@ -474,21 +474,8 @@ app.get('/stream/:type/:id.json', async (req, res) => {
             let finalUrl;
 
             if (source.url.includes('ivanturbinca.com/hls-proxy.php')) {
-                // Extract the actual source URL from the proxy parameter
-                try {
-                    const urlObj = new URL(source.url);
-                    const srcParam = urlObj.searchParams.get('src');
-
-                    if (srcParam && srcParam.includes('magicplaces.eu')) {
-                        // Use token-based playlist proxy
-                        finalUrl = `${baseUrl}/token-playlist/${encodeURIComponent(srcParam)}`;
-                    } else {
-                        // Fallback to external-proxy
-                        finalUrl = `${baseUrl}/external-proxy/${encodeURIComponent(source.url)}`;
-                    }
-                } catch (err) {
-                    finalUrl = `${baseUrl}/external-proxy/${encodeURIComponent(source.url)}`;
-                }
+                // The upstream proxy now handles tokenized magicplaces.eu URLs itself.
+                finalUrl = `${baseUrl}/external-proxy/${encodeURIComponent(source.url)}`;
             } else if (source.url.includes('ivanturbinca.com')) {
                 finalUrl = `${baseUrl}/external-proxy/${encodeURIComponent(source.url)}`;
             } else {
@@ -571,19 +558,10 @@ app.get('/token-playlist/:sourceUrl(*)', async (req, res) => {
     try {
         const sourceUrl = decodeURIComponent(req.params.sourceUrl);
 
-        // Extract base URL for token generation
-        // Tokens must be generated using the base master playlist (e.g., video.m3u8)
-        // not sub-playlists (e.g., tracks-v1a1/mono.m3u8)
-        // For magicplaces.eu streams, the base is always at /channelname/video.m3u8
         const urlObj = new URL(sourceUrl);
-        const pathParts = urlObj.pathname.split('/').filter(p => p);
-        // Base URL is protocol://host/firstPathSegment/video.m3u8
-        const baseTokenUrl = `${urlObj.protocol}//${urlObj.host}/${pathParts[0]}/video.m3u8`;
 
-        // Get a valid token using the base URL
-        const tokenData = await getValidToken(baseTokenUrl);
-
-        // Fetch the playlist through external proxy
+        // Fetch the playlist through the external proxy. The old securetoken.php
+        // endpoint is gone; hls-proxy.php now issues tokenized segment redirects.
         const proxyUrl = `https://ivanturbinca.com/hls-proxy.php?src=${encodeURIComponent(sourceUrl)}`;
         const response = await axios.get(proxyUrl, {
             timeout: 10000,
@@ -602,6 +580,7 @@ app.get('/token-playlist/:sourceUrl(*)', async (req, res) => {
 
         const baseUrl = `${req.protocol}://${req.headers.host}`;
         const sourceBase = `${urlObj.protocol}//${urlObj.hostname}`;
+        const upstreamBase = 'https://ivanturbinca.com';
 
         // Rewrite URLs in the playlist
         const rewrittenPlaylist = playlistData.replace(
@@ -612,7 +591,10 @@ app.get('/token-playlist/:sourceUrl(*)', async (req, res) => {
 
                 // Convert relative/proxy URLs to absolute magicplaces.eu URLs
                 let absoluteUrl;
+                let upstreamProxyUrl = null;
                 if (trimmedMatch.startsWith('/hls-proxy.php?src=')) {
+                    upstreamProxyUrl = new URL(trimmedMatch, upstreamBase).toString();
+
                     // Extract the actual URL from the proxy parameter
                     const srcMatch = trimmedMatch.match(/src=([^&]+)/);
                     if (srcMatch) {
@@ -631,8 +613,9 @@ app.get('/token-playlist/:sourceUrl(*)', async (req, res) => {
                     // Nested m3u8 playlists also go through token-playlist endpoint
                     return `${baseUrl}/token-playlist/${encodeURIComponent(absoluteUrl)}`;
                 } else {
-                    // Video segments get tokens appended and are served directly by magicplaces.eu
-                    return appendTokenToUrl(absoluteUrl, tokenData);
+                    // Video segments go through the upstream proxy so it can issue
+                    // the current tokenized redirect, then our proxy handles CORS.
+                    return `${baseUrl}/hls-proxy/${encodeURIComponent(upstreamProxyUrl || absoluteUrl)}`;
                 }
             }
         );
