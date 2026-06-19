@@ -10,7 +10,7 @@
     "sources": [
       {
         "name": "Sursa 1 (HD)",
-        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p9.magicplaces.eu/protvhd/video.m3u8",
+        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p9.magicplaces.eu/rds_protv/video.m3u8",
         "quality": "1080p"
       }
     ]
@@ -26,7 +26,7 @@
     "sources": [
       {
         "name": "Sursa 1 (HD)",
-        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p13.magicplaces.eu/antena1/video.m3u8",
+        "url": "https://ivanturbinca.com/hls-proxy.php?src=https://p13.magicplaces.eu/rds_antena1/video.m3u8",
         "quality": "1080p"
       }
     ]
