@@ -60,6 +60,11 @@ if (ENABLE_CUSTOM_CHANNELS) {
 
 /* ---------------- APP SETUP ---------------- */
 const app = express();
+// Behind a TLS-terminating reverse proxy (Caddy/nginx on the VPS): honor
+// X-Forwarded-Proto so req.protocol is 'https'. Without this, generated stream
+// URLs come out as http://, the player gets 308-redirected to https for every
+// segment, falls behind the live edge, and requests expired segments -> 404.
+app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -625,6 +630,9 @@ app.get('/token-playlist/:sourceUrl(*)', async (req, res) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
         res.setHeader('Access-Control-Allow-Headers', 'Range, Content-Type');
+        // Live media playlists update every few seconds — never cache them, or the
+        // player will keep requesting segment timestamps that have already expired (404).
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.send(rewrittenPlaylist);
 
     } catch (error) {
@@ -679,6 +687,8 @@ app.get('/external-proxy/:streamUrl(*)', async (req, res) => {
         // Return the rewritten playlist
         res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
         res.setHeader('Access-Control-Allow-Origin', '*');
+        // Live media playlists must never be cached (stale playlist -> expired segments -> 404).
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         res.send(rewrittenPlaylist);
 
     } catch (error) {
@@ -760,6 +770,8 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
         // If it's an M3U8 playlist, rewrite URLs to go through proxy
         const isPlaylistContent = contentType.includes('mpegurl') || contentType.includes('m3u8') || streamUrl.includes('.m3u8') || isDisguisedPlaylist;
         if (isPlaylistContent) {
+            // Live media playlists must never be cached (stale playlist -> expired segments -> 404).
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
             let playlistData = '';
 
             response.data.on('data', (chunk) => {
