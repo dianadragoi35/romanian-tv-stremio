@@ -842,8 +842,19 @@ app.get('/hls-proxy/:streamUrl(*)', async (req, res) => {
             // For disguised segments (mofta1.cfd), stream the data directly
             response.data.pipe(res);
         } else {
-            // For video segments, redirect to origin instead of proxying to save bandwidth
-            res.redirect(307, finalUrl);
+            // ivanturbinca/magicplaces mint segment tokens bound to the IP that
+            // requested them. Redirecting the player to the origin would present a
+            // token minted for THIS server's IP from the player's IP -> 403. So we
+            // must stream those bytes through here (this server already fetched them
+            // with a 200). Other sources are redirected to the origin to save bandwidth.
+            const tokenBoundToServerIp = streamUrl.includes('ivanturbinca.com') ||
+                finalUrl.includes('magicplaces.eu');
+            if (tokenBoundToServerIp) {
+                response.data.pipe(res);
+            } else {
+                // For video segments, redirect to origin instead of proxying to save bandwidth
+                res.redirect(307, finalUrl);
+            }
         }
 
     } catch (error) {
